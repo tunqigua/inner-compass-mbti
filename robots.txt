@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tunqigua.github.io/inner-compass-mbti/sitemap.xml
+
