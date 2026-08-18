@@ -759,8 +759,20 @@ async function setupVisitorCount() {
   const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
   if (!counter || window.location.hostname !== "tunqigua.github.io" || currentPath !== livePath) return;
 
+  const storageKey = "inner-compass-visitor-count-v1";
+  const formatter = new Intl.NumberFormat("zh-CN");
+  const renderCount = value => {
+    const views = Number(value);
+    if (!Number.isSafeInteger(views) || views < 1) return false;
+    counter.textContent = `${formatter.format(views)} 人`;
+    try { localStorage.setItem(storageKey, String(views)); } catch {}
+    return true;
+  };
+
+  try { renderCount(localStorage.getItem(storageKey)); } catch {}
+
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 4000);
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
   const params = new URLSearchParams({
     site: "tunqigua.github.io",
     path: livePath
@@ -768,26 +780,34 @@ async function setupVisitorCount() {
   const apiBase = "https://page-views-api.ratneshc.com/api/v1";
 
   try {
-    const trackResponse = await fetch(`${apiBase}/track?${params}`, {
+    const trackRequest = fetch(`${apiBase}/track?${params}`, {
       cache: "no-store",
       keepalive: true,
       signal: controller.signal
     });
-    if (!trackResponse.ok) return;
 
     const viewsResponse = await fetch(`${apiBase}/views?${params}`, {
       cache: "no-store",
       signal: controller.signal
     });
-    if (!viewsResponse.ok) return;
+    if (viewsResponse.ok) {
+      const payload = await viewsResponse.json();
+      renderCount(payload.views);
+    }
 
-    const payload = await viewsResponse.json();
-    const views = Number(payload.views);
-    if (!Number.isSafeInteger(views) || views < 1) return;
-
-    counter.textContent = `${new Intl.NumberFormat("zh-CN").format(views)} 人`;
+    const trackResponse = await trackRequest;
+    if (trackResponse.ok) {
+      const refreshedResponse = await fetch(`${apiBase}/views?${params}`, {
+        cache: "no-store",
+        signal: controller.signal
+      });
+      if (refreshedResponse.ok) {
+        const refreshedPayload = await refreshedResponse.json();
+        renderCount(refreshedPayload.views);
+      }
+    }
   } catch {
-    // Keep the warm, non-numeric fallback if the optional counter is unavailable.
+    // Keep the last valid numeric value if the optional live refresh is unavailable.
   } finally {
     window.clearTimeout(timeout);
   }
