@@ -443,11 +443,64 @@ input:focus-visible + label,
   margin-top: 38px;
 }
 
+.encounter-note {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 27px;
+  padding: 9px 14px 9px 12px;
+  border: 1px solid rgba(83, 106, 89, 0.2);
+  border-radius: 999px;
+  background: rgba(247, 245, 238, 0.68);
+  color: var(--ink-soft);
+  box-shadow: 0 8px 28px rgba(48, 65, 54, 0.05);
+}
+
+.encounter-signal {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--sage-dark);
+  box-shadow: 0 0 0 4px rgba(100, 126, 106, 0.12);
+  animation: encounter-pulse 2.8s ease-in-out infinite;
+}
+
+.encounter-label {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+}
+
+.encounter-note p {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font-family: var(--serif);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.encounter-note strong {
+  color: var(--pine);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+@keyframes encounter-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
 .hero-facts {
   max-width: 560px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin-top: 58px;
+  margin-top: 32px;
   padding-top: 20px;
   border-top: 1px solid var(--line);
 }

@@ -753,6 +753,46 @@ function handleSharedResult() {
   }, 700);
 }
 
+async function setupVisitorCount() {
+  const counter = $("#visitor-count");
+  const livePath = "/inner-compass-mbti";
+  const currentPath = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (!counter || window.location.hostname !== "tunqigua.github.io" || currentPath !== livePath) return;
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 4000);
+  const params = new URLSearchParams({
+    site: "tunqigua.github.io",
+    path: livePath
+  });
+  const apiBase = "https://page-views-api.ratneshc.com/api/v1";
+
+  try {
+    const trackResponse = await fetch(`${apiBase}/track?${params}`, {
+      cache: "no-store",
+      keepalive: true,
+      signal: controller.signal
+    });
+    if (!trackResponse.ok) return;
+
+    const viewsResponse = await fetch(`${apiBase}/views?${params}`, {
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!viewsResponse.ok) return;
+
+    const payload = await viewsResponse.json();
+    const views = Number(payload.views);
+    if (!Number.isSafeInteger(views) || views < 1) return;
+
+    counter.textContent = `${new Intl.NumberFormat("zh-CN").format(views)} 人`;
+  } catch {
+    // Keep the warm, non-numeric fallback if the optional counter is unavailable.
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function init() {
   renderTypes();
   setupTypeInteractions();
@@ -761,6 +801,7 @@ function init() {
   setupPageChrome();
   setupReveal();
   handleSharedResult();
+  setupVisitorCount();
 }
 
 init();
