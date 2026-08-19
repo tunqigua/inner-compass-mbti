@@ -2238,8 +2238,23 @@ dialog::backdrop {
 }
 
 @media (max-width: 840px) {
+  .site-header,
+  .site-header.is-scrolled {
+    padding-top: env(safe-area-inset-top, 0px);
+    background: var(--paper);
+    border-color: var(--line);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
   .site-header {
-    height: 74px;
+    height: calc(74px + env(safe-area-inset-top, 0px));
+  }
+
+  .site-header.is-scrolled {
+    height: calc(72px + env(safe-area-inset-top, 0px));
   }
 
   .nav-shell {
@@ -2253,7 +2268,7 @@ dialog::backdrop {
   .hero {
     min-height: auto;
     grid-template-columns: 1fr;
-    padding-top: 135px;
+    padding-top: calc(135px + env(safe-area-inset-top, 0px));
     padding-bottom: 115px;
   }
 
@@ -2360,7 +2375,7 @@ dialog::backdrop {
 
   .site-header,
   .site-header.is-scrolled {
-    height: 68px;
+    height: calc(68px + env(safe-area-inset-top, 0px));
   }
 
   .brand {
@@ -2379,7 +2394,7 @@ dialog::backdrop {
 
   .hero {
     gap: 55px;
-    padding-top: 112px;
+    padding-top: calc(112px + env(safe-area-inset-top, 0px));
     padding-bottom: 95px;
   }
 
