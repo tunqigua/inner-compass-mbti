@@ -280,9 +280,30 @@ const guideArticles = {
   }
 };
 
-const STORAGE_KEY = "inner-compass-progress-v1";
+const LEGACY_STORAGE_KEY = "inner-compass-progress-v1";
+const PROGRESS_STORAGE_KEY = "ic-progress";
+const VISITED_STORAGE_KEY = "ic-visited";
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+const personalityVisuals = {
+  INTJ: { color: "#6f657f", ink: "#f8f3e9", tone: "high" },
+  INTP: { color: "#7d7088", ink: "#f8f3e9", tone: "soft" },
+  ENTJ: { color: "#62576f", ink: "#f8f3e9", tone: "high" },
+  ENTP: { color: "#89758d", ink: "#241f26", tone: "mid" },
+  INFJ: { color: "#63766e", ink: "#f8f3e9", tone: "high" },
+  INFP: { color: "#7d8b79", ink: "#1e2822", tone: "soft" },
+  ENFJ: { color: "#587365", ink: "#f8f3e9", tone: "high" },
+  ENFP: { color: "#8b9270", ink: "#20251c", tone: "mid" },
+  ISTJ: { color: "#5f707a", ink: "#f8f3e9", tone: "high" },
+  ISFJ: { color: "#74868b", ink: "#182326", tone: "soft" },
+  ESTJ: { color: "#536a74", ink: "#f8f3e9", tone: "high" },
+  ESFJ: { color: "#87959a", ink: "#1d2527", tone: "soft" },
+  ISTP: { color: "#806d58", ink: "#f8f3e9", tone: "high" },
+  ISFP: { color: "#978068", ink: "#251f19", tone: "soft" },
+  ESTP: { color: "#74604f", ink: "#f8f3e9", tone: "high" },
+  ESFP: { color: "#a08767", ink: "#261f17", tone: "mid" }
+};
 
 const typesGrid = $("#types-grid");
 const detailDialog = $("#detail-dialog");
@@ -292,20 +313,45 @@ const questionStage = $("#question-stage");
 const resultStage = $("#result-stage");
 const questionTitle = $("#question-title");
 const questionCount = $("#question-count");
+const testProgressMeta = $("#test-progress-meta");
+const questionCaption = $("#question-caption");
 const answerScale = $("#answer-scale");
 const previousQuestion = $("#previous-question");
 const progressTrack = $("#progress-track");
 const progressBar = $("#progress-bar");
+const progressSteps = $("#progress-steps");
 const testStatus = $("#test-status");
+const experienceShell = $("#experience-shell");
+const developingStage = $("#developing-stage");
+const developingCopy = $("#developing-copy");
+const developingPhoto = $("#developing-photo");
+const developingIcon = $("#developing-icon");
+const skipDeveloping = $("#skip-developing");
+const resultPhoto = $("#result-photo");
+const resultCaption = $("#result-caption");
+const resultStampDate = $("#result-stamp-date");
 const guideDialog = $("#guide-dialog");
 const guideContent = $("#guide-dialog-content");
+const shareDialog = $("#share-dialog");
+const sharePreview = $("#share-preview");
+const downloadResult = $("#download-result");
+const copyResultLink = $("#copy-result-link");
 const toast = $("#toast");
 
 let currentQuestion = 0;
 let answers = Array(questions.length).fill(null);
 let advanceTimer = null;
+let advanceToken = 0;
+let developingTimer = null;
+let developingToken = 0;
+let shutterTimer = null;
 let toastTimer = null;
 let lastFocusedElement = null;
+let experienceState = "question";
+let answerLocked = false;
+let currentResult = null;
+let shareBlobPromise = null;
+let shareObjectUrl = "";
 
 function escapeHtml(value) {
   return String(value)
@@ -321,71 +367,72 @@ function getPersonalityIcon(code) {
 }
 
 function renderTypes() {
+  const existingCards = $$(".type-card", typesGrid);
+  if (existingCards.length === personalities.length) {
+    existingCards.forEach(card => applyPersonalityVisual(card, card.dataset.type));
+    return;
+  }
+
   typesGrid.innerHTML = personalities.map((type, index) => {
     const group = groupMeta[type.group];
     return `
-      <button class="type-card reveal" type="button" data-type="${type.code}" data-group="${type.group}" style="--delay: ${(index % 4) * 55}ms" aria-label="查看 ${type.code} ${escapeHtml(type.name)} 的详细解读">
-        <span class="type-card-inner">
-          <span class="type-card-top"><span>${String(index + 1).padStart(2, "0")}</span>${group.en}</span>
-          <span class="type-card-identity">
-            <span class="type-card-copy">
-              <span class="type-card-code">${type.code}</span>
-              <h3>${escapeHtml(type.name)}</h3>
-            </span>
-            <span class="type-card-portrait" aria-hidden="true">
-              <img src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" loading="lazy" decoding="async">
-            </span>
-          </span>
-          <span class="type-card-summary">${escapeHtml(type.tagline)}</span>
-          <span class="type-card-bottom"><span>${group.label} · ${group.code}</span><span class="type-card-arrow" aria-hidden="true">↗</span></span>
+      <a class="type-card" href="?result=${type.code}" data-type="${type.code}" data-group="${type.group}" aria-label="查看 ${type.code} ${escapeHtml(type.name)} 人格解读">
+        <span class="type-photo">
+          <img src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" loading="lazy" decoding="async">
+          <strong>${type.code}</strong><span>${escapeHtml(type.name)}</span>
         </span>
-      </button>`;
+        <span class="type-border"><p>${escapeHtml(type.tagline)}</p><small>${group.code} · ${group.label}</small></span>
+      </a>`;
   }).join("");
+  $$(".type-card", typesGrid).forEach(card => applyPersonalityVisual(card, card.dataset.type));
+}
+
+function getPersonalityVisual(code) {
+  return personalityVisuals[String(code).toUpperCase()] || personalityVisuals.INFJ;
+}
+
+function applyPersonalityVisual(root, code) {
+  if (!root) return;
+  const visual = getPersonalityVisual(code);
+  const photo = root.matches(".type-photo, .detail-photo, #developing-photo, #result-photo")
+    ? root
+    : $(".type-photo, .detail-photo, #developing-photo, #result-photo", root);
+  if (!photo) return;
+  photo.style.setProperty("--personality-color", visual.color);
+  photo.style.setProperty("--personality-ink", visual.ink);
+  photo.dataset.tone = visual.tone;
 }
 
 function openPersonality(code, trigger = null) {
   const type = personalities.find(item => item.code === code);
   if (!type) return;
   const group = groupMeta[type.group];
+  const visual = getPersonalityVisual(type.code);
   lastFocusedElement = trigger || document.activeElement;
   detailContent.innerHTML = `
-    <header class="detail-hero">
-      <div>
-        <span class="detail-group"><i></i>${group.label} · ${group.code} / ${group.en}</span>
-        <h2 class="detail-code" id="detail-title">${type.code}</h2>
-        <p class="detail-name">${escapeHtml(type.name)}</p>
+    <div class="detail-layout">
+      <article class="detail-polaroid polaroid">
+        <div class="detail-photo polaroid-photo" style="--personality-color:${visual.color};--personality-ink:${visual.ink}" data-tone="${visual.tone}">
+          <img class="personality-icon" src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" decoding="async">
+          <strong>${type.code}</strong><span>${escapeHtml(type.name)}</span>
+        </div>
+        <footer class="detail-caption polaroid-border"><p class="polaroid-caption">${group.code} · ${group.label}</p></footer>
+      </article>
+      <div class="detail-copy">
+        <p class="detail-group">${group.label} · ${group.code}</p>
+        <h2 class="detail-code" id="detail-title">${type.code} · ${escapeHtml(type.name)}</h2>
         <p class="detail-tagline">${escapeHtml(type.tagline)}</p>
+        <div class="detail-sections">
+          <section class="detail-section"><h3>性格特征</h3><ul>${type.features.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>
+          <section class="detail-section"><h3>自然优势</h3><ul>${type.strengths.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>
+          <section class="detail-section"><h3>可能的盲点</h3><ul>${type.blindspots.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>
+          <section class="detail-section"><h3>可能自在的领域</h3><ul>${type.fields.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>
+          <section class="detail-section detail-section-wide"><h3>关系中的你</h3><p>${escapeHtml(type.relationships)}</p></section>
+        </div>
+        <p class="detail-disclaimer">这是对常见倾向的温和描述，不代表能力高低，也不是对你的完整定义。任何类型都能在不同环境中学习新的表达方式。</p>
       </div>
-      <div class="detail-seal personality-seal" aria-hidden="true">
-        <img class="personality-icon" src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" decoding="async">
-        <span class="personality-code-badge">${type.code}</span>
-        <i></i>
-      </div>
-    </header>
-    <div class="detail-body">
-      <section class="detail-block">
-        <h3><span>01</span> 性格特征</h3>
-        <ul>${type.features.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-      </section>
-      <section class="detail-block">
-        <h3><span>02</span> 自然优势</h3>
-        <ul>${type.strengths.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-      </section>
-      <section class="detail-block">
-        <h3><span>03</span> 可能的盲点</h3>
-        <ul>${type.blindspots.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-      </section>
-      <section class="detail-block">
-        <h3><span>04</span> 可能自在的领域</h3>
-        <ul>${type.fields.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-      </section>
-      <section class="detail-block detail-block-wide">
-        <h3><span>05</span> 关系中的你</h3>
-        <p>${escapeHtml(type.relationships)}</p>
-      </section>
-      <p class="detail-disclaimer"><span aria-hidden="true">○</span><span>这是对常见倾向的温和描述，不代表能力高低，也不是对你的完整定义。任何类型都能在不同环境中学习新的表达方式。</span></p>
     </div>`;
-  detailDialog.showModal();
+  if (!detailDialog.open) detailDialog.showModal();
   document.body.classList.add("dialog-open");
 }
 
@@ -396,7 +443,10 @@ function closeDialog(dialog) {
 function setupTypeInteractions() {
   typesGrid.addEventListener("click", event => {
     const card = event.target.closest(".type-card");
-    if (card) openPersonality(card.dataset.type, card);
+    if (card) {
+      event.preventDefault();
+      openPersonality(card.dataset.type, card);
+    }
   });
 
   $$(".filter-chip").forEach(chip => {
@@ -439,21 +489,65 @@ function setupReveal() {
   items.forEach(item => observer.observe(item));
 }
 
+function isValidAnswers(value) {
+  return Array.isArray(value)
+    && value.length === questions.length
+    && value.every(answer => answer === null || (Number.isInteger(answer) && answer >= -2 && answer <= 2));
+}
+
+function migrateProgress() {
+  try {
+    if (localStorage.getItem(PROGRESS_STORAGE_KEY)) return;
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
+    if (!legacy || !isValidAnswers(legacy.answers)) return;
+    const firstEmpty = legacy.answers.findIndex(value => value === null);
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({
+      version: 2,
+      answers: legacy.answers,
+      currentQuestion: firstEmpty === -1 ? questions.length - 1 : firstEmpty,
+      updatedAt: legacy.updatedAt || Date.now()
+    }));
+  } catch {
+    // A private browsing context may make storage unavailable.
+  }
+}
+
+function markVisited() {
+  try {
+    if (!localStorage.getItem(VISITED_STORAGE_KEY)) {
+      localStorage.setItem(VISITED_STORAGE_KEY, new Date().toISOString());
+    }
+  } catch {
+    // The experience remains fully usable without storage.
+  }
+}
+
 function loadProgress() {
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!saved || !Array.isArray(saved.answers) || saved.answers.length !== questions.length) return;
-    answers = saved.answers.map(value => Number.isInteger(value) && value >= -2 && value <= 2 ? value : null);
+    migrateProgress();
+    const saved = JSON.parse(localStorage.getItem(PROGRESS_STORAGE_KEY));
+    if (!saved || !isValidAnswers(saved.answers)) {
+      answers = Array(questions.length).fill(null);
+      currentQuestion = 0;
+      return;
+    }
+    answers = saved.answers.slice();
     const firstEmpty = answers.findIndex(value => value === null);
     currentQuestion = firstEmpty === -1 ? questions.length - 1 : firstEmpty;
   } catch {
-    localStorage.removeItem(STORAGE_KEY);
+    answers = Array(questions.length).fill(null);
+    currentQuestion = 0;
   }
 }
 
 function saveProgress() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ answers, updatedAt: Date.now() }));
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({
+      version: 2,
+      answers,
+      currentQuestion,
+      updatedAt: Date.now()
+    }));
   } catch {
     // The test still works when storage is unavailable.
   }
@@ -461,43 +555,107 @@ function saveProgress() {
 
 function clearProgress() {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(PROGRESS_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
   } catch {
     // No action needed.
   }
 }
 
+function cancelAdvance() {
+  clearTimeout(advanceTimer);
+  advanceTimer = null;
+  advanceToken += 1;
+  answerLocked = false;
+  if (answerScale) answerScale.disabled = false;
+}
+
+function cancelDeveloping() {
+  clearTimeout(developingTimer);
+  developingTimer = null;
+  developingToken += 1;
+}
+
+function setExperienceState(nextState, { focus = true } = {}) {
+  experienceState = nextState;
+  if (experienceShell) experienceShell.dataset.appState = nextState;
+  const stages = {
+    question: questionStage,
+    developing: developingStage,
+    result: resultStage
+  };
+  Object.entries(stages).forEach(([state, stage]) => {
+    if (!stage) return;
+    const active = state === nextState;
+    stage.hidden = !active;
+    stage.inert = !active;
+  });
+  if (testProgressMeta) testProgressMeta.hidden = nextState !== "question";
+  if (!focus) return;
+  const focusTarget = nextState === "question"
+    ? questionTitle
+    : nextState === "result"
+      ? $("#result-heading")
+      : developingStage;
+  if (focusTarget) {
+    if (nextState === "developing") focusTarget.tabIndex = -1;
+    window.setTimeout(() => focusTarget.focus({ preventScroll: true }), 30);
+  }
+}
+
+function triggerShutter() {
+  // Keep answering visually calm; progress and the selected radio provide feedback.
+  clearTimeout(shutterTimer);
+}
+
 function showTest() {
   lastFocusedElement = document.activeElement;
   loadProgress();
-  testDialog.showModal();
+  if (!testDialog.open) testDialog.showModal();
   document.body.classList.add("dialog-open");
   if (answers.every(value => value !== null)) {
-    showResult();
+    beginDeveloping();
   } else {
-    resultStage.hidden = true;
-    questionStage.hidden = false;
-    $("#test-progress-meta").hidden = false;
-    progressTrack.hidden = false;
+    setExperienceState("question", { focus: false });
     renderQuestion(false);
     if (answers.some(value => value !== null)) showToast("已继续上次未完成的进度");
   }
 }
 
 function closeTest() {
-  clearTimeout(advanceTimer);
+  cancelAdvance();
+  cancelDeveloping();
+  clearTimeout(shutterTimer);
+  if (experienceState === "question" && answers.some(value => value !== null)) saveProgress();
   closeDialog(testDialog);
 }
 
-function renderQuestion(animate = true) {
-  clearTimeout(advanceTimer);
-  const question = questions[currentQuestion];
+function setupProgressSteps() {
+  if (!progressSteps) return;
+  progressSteps.innerHTML = Array.from({ length: questions.length }, (_, index) =>
+    `<i data-step="${index}" aria-hidden="true"></i>`
+  ).join("");
+}
+
+function syncQuestionProgress() {
   const answeredCount = answers.filter(value => value !== null).length;
-  questionCount.textContent = `${String(currentQuestion + 1).padStart(2, "0")} / ${questions.length}`;
-  questionTitle.textContent = question.text;
-  previousQuestion.disabled = currentQuestion === 0;
+  const label = `${String(currentQuestion + 1).padStart(2, "0")} / ${questions.length}`;
+  questionCount.textContent = label;
+  if (questionCaption) questionCaption.textContent = label;
   progressTrack.setAttribute("aria-valuenow", String(answeredCount));
   progressBar.style.width = `${(answeredCount / questions.length) * 100}%`;
+  $$("[data-step]", progressSteps).forEach((step, index) => {
+    step.classList.toggle("is-answered", answers[index] !== null);
+    step.classList.toggle("is-current", index === currentQuestion);
+  });
+}
+
+function renderQuestion(animate = true) {
+  cancelAdvance();
+  const question = questions[currentQuestion];
+  questionTitle.textContent = question.text;
+  previousQuestion.disabled = currentQuestion === 0;
+  syncQuestionProgress();
   testStatus.textContent = `第 ${currentQuestion + 1} 题，共 ${questions.length} 题`;
 
   answerScale.innerHTML = `<legend class="sr-only">选择与你的符合程度</legend>${answerOptions.map(option => {
@@ -519,21 +677,25 @@ function renderQuestion(animate = true) {
 
 function handleAnswer(event) {
   const input = event.target.closest('input[name="answer"]');
-  if (!input) return;
+  if (!input || answerLocked || experienceState !== "question") return;
   answers[currentQuestion] = Number(input.value);
   saveProgress();
-  const answeredCount = answers.filter(value => value !== null).length;
-  progressTrack.setAttribute("aria-valuenow", String(answeredCount));
-  progressBar.style.width = `${(answeredCount / questions.length) * 100}%`;
+  syncQuestionProgress();
   testStatus.textContent = `${answerOptions.find(item => item.value === Number(input.value)).label}，已选择`;
+  triggerShutter();
 
-  clearTimeout(advanceTimer);
+  answerLocked = true;
+  answerScale.disabled = true;
+  const token = ++advanceToken;
   advanceTimer = window.setTimeout(() => {
+    if (token !== advanceToken || experienceState !== "question" || !testDialog.open) return;
+    answerLocked = false;
+    answerScale.disabled = false;
     if (currentQuestion < questions.length - 1) {
       currentQuestion += 1;
       renderQuestion();
     } else {
-      showResult();
+      beginDeveloping();
     }
   }, 430);
 }
@@ -575,15 +737,49 @@ function calculateResult() {
   return { code, profile, axes };
 }
 
-function showResult() {
-  clearTimeout(advanceTimer);
-  saveProgress();
-  const result = calculateResult();
+function getDateStamp() {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}.${values.month}.${values.day}`;
+}
+
+function beginDeveloping() {
+  cancelAdvance();
+  cancelDeveloping();
+  currentResult = calculateResult();
+  applyPersonalityVisual(developingPhoto, currentResult.code);
+  if (developingIcon) developingIcon.src = getPersonalityIcon(currentResult.code);
+  setExperienceState("developing");
+  if (developingCopy) developingCopy.textContent = "照片正在显影，别急";
+  developingStage.classList.remove("is-developing");
+  void developingStage.offsetWidth;
+  developingStage.classList.add("is-developing");
+  testStatus.textContent = "照片正在显影";
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const duration = reducedMotion ? 120 : 1800;
+  const token = ++developingToken;
+  developingTimer = window.setTimeout(() => {
+    if (token !== developingToken || experienceState !== "developing" || !testDialog.open) return;
+    showResult(currentResult);
+  }, duration);
+}
+
+function finishDeveloping() {
+  if (experienceState !== "developing") return;
+  cancelDeveloping();
+  showResult(currentResult || calculateResult());
+}
+
+function showResult(result = calculateResult()) {
+  cancelAdvance();
+  cancelDeveloping();
+  currentResult = result;
   const nearCount = result.axes.filter(item => item.nearBoundary).length;
-  questionStage.hidden = true;
-  resultStage.hidden = false;
-  $("#test-progress-meta").hidden = true;
-  progressTrack.hidden = true;
+  const visual = getPersonalityVisual(result.code);
 
   $("#result-type").textContent = result.code;
   $("#result-name").textContent = result.profile.name;
@@ -598,33 +794,48 @@ function showResult() {
   $("#result-strengths").innerHTML = result.profile.strengths.map(item => `<li>${escapeHtml(item)}</li>`).join("");
   $("#result-blindspots").innerHTML = result.profile.blindspots.map(item => `<li>${escapeHtml(item)}</li>`).join("");
 
+  if (resultPhoto) {
+    resultPhoto.style.setProperty("--personality-color", visual.color);
+    resultPhoto.style.setProperty("--personality-ink", visual.ink);
+    resultPhoto.dataset.tone = visual.tone;
+  }
+  if (resultCaption) resultCaption.textContent = `${result.code} · ${result.profile.name}`;
+  if (resultStampDate) resultStampDate.textContent = getDateStamp();
+
   $("#dimension-bars").innerHTML = result.axes.map(item => {
     const meta = axisMeta[item.axis];
     const leftDominant = item.selected === meta.left;
     const preference = leftDominant ? `${meta.leftName} ${item.leftPercent}%` : `${meta.rightName} ${item.rightPercent}%`;
+    const markerIndex = Math.max(0, Math.min(8, Math.round(item.rightPercent / 12.5)));
+    const dots = Array.from({ length: 9 }, (_, index) =>
+      `<i class="dimension-dot${index === markerIndex ? " is-marker" : ""}"></i>`
+    ).join("");
     return `<div class="dimension-row" aria-label="${meta.leftName} ${item.leftPercent}%，${meta.rightName} ${item.rightPercent}%，${item.strength}">
       <span class="dimension-letter ${leftDominant ? "is-dominant" : ""}">${meta.left}</span>
       <div class="dimension-track-wrap">
-        <div class="dimension-labels"><span>${meta.leftCopy}</span><strong>${preference} · ${item.strength}</strong><span>${meta.rightCopy}</span></div>
-        <div class="dimension-track" aria-hidden="true"><i class="dimension-fill" style="width:${item.leftPercent}%"></i></div>
+        <div class="dimension-labels"><strong>${preference}</strong><span>${item.strength}</span></div>
+        <div class="dimension-track dimension-dot-track" aria-hidden="true">${dots}</div>
       </div>
       <span class="dimension-letter ${leftDominant ? "" : "is-dominant"}">${meta.right}</span>
     </div>`;
   }).join("");
 
-  resultStage.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-  window.setTimeout(() => $("#result-heading").focus({ preventScroll: true }), 120);
+  clearProgress();
+  setExperienceState("result");
+  if (experienceShell) experienceShell.scrollTop = 0;
   testStatus.textContent = `测试完成。你的本次人格倾向是 ${result.code}，${result.profile.name}`;
+  shareBlobPromise = createShareImageBlob(result).catch(() => null);
 }
 
 function retryTest() {
+  cancelAdvance();
+  cancelDeveloping();
   answers = Array(questions.length).fill(null);
   currentQuestion = 0;
+  currentResult = null;
+  shareBlobPromise = null;
   clearProgress();
-  resultStage.hidden = true;
-  questionStage.hidden = false;
-  $("#test-progress-meta").hidden = false;
-  progressTrack.hidden = false;
+  setExperienceState("question", { focus: false });
   renderQuestion(false);
   showToast("已清空上次答案，重新开始");
 }
@@ -647,53 +858,228 @@ function copyTextFallback(text) {
   return copied;
 }
 
-async function shareResult() {
-  const result = calculateResult();
+function getShareUrl(result) {
   const url = new URL(window.location.href);
   url.search = "";
   url.hash = "";
   url.searchParams.set("result", result.code);
-  const text = `我的本次人格倾向是 ${result.code} · ${result.profile.name}。${result.profile.tagline}`;
-  const sharableUrl = url.protocol === "file:" ? "" : url.href;
-  const payload = { title: "向内生长｜我的人格倾向", text };
-  if (sharableUrl) payload.url = sharableUrl;
-  if (navigator.share) {
+  return url.protocol === "file:" ? "" : url.href;
+}
+
+function loadCanvasImage(src) {
+  return new Promise(resolve => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+function drawWrappedText(context, text, x, y, maxWidth, lineHeight, maxLines = Infinity) {
+  const characters = Array.from(String(text));
+  let line = "";
+  let lineIndex = 0;
+  characters.forEach(character => {
+    if (lineIndex >= maxLines) return;
+    const candidate = line + character;
+    if (context.measureText(candidate).width > maxWidth && line) {
+      context.fillText(line, x, y + lineIndex * lineHeight);
+      line = character;
+      lineIndex += 1;
+    } else {
+      line = candidate;
+    }
+  });
+  if (line && lineIndex < maxLines) context.fillText(line, x, y + lineIndex * lineHeight);
+  return y + (Math.min(lineIndex + 1, maxLines) * lineHeight);
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("无法生成分享图片")), "image/png");
+  });
+}
+
+async function createShareImageBlob(result) {
+  if (document.fonts?.ready) {
     try {
-      await navigator.share(payload);
-      showToast("分享面板已打开");
-      return;
+      await Promise.race([
+        document.fonts.ready,
+        new Promise(resolve => window.setTimeout(resolve, 800))
+      ]);
+    } catch {}
+  }
+  const icon = await loadCanvasImage(getPersonalityIcon(result.code));
+  const visual = getPersonalityVisual(result.code);
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1350;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前浏览器不支持分享图片");
+
+  context.fillStyle = "#d8d0c1";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#fffdf7";
+  context.fillRect(72, 54, 936, 1234);
+  context.fillStyle = visual.color;
+  context.fillRect(132, 114, 816, 816);
+
+  if (icon) {
+    const size = 620;
+    context.drawImage(icon, 230, 190, size, size);
+  }
+
+  context.fillStyle = visual.ink;
+  context.textAlign = "left";
+  context.font = '700 96px "Noto Serif SC", serif';
+  context.fillText(result.code, 184, 790);
+  context.font = '700 46px "Noto Serif SC", serif';
+  context.fillText(result.profile.name, 184, 858);
+
+  context.fillStyle = "#22211e";
+  context.font = '400 30px "Noto Sans SC", sans-serif';
+  drawWrappedText(context, result.profile.tagline, 132, 1008, 816, 48, 2);
+
+  context.strokeStyle = "#8b867e";
+  context.fillStyle = "#22211e";
+  context.lineWidth = 3;
+  context.font = '700 22px "Noto Sans SC", sans-serif';
+  result.axes.forEach((axis, index) => {
+    const meta = axisMeta[axis.axis];
+    const x = 138 + index * 204;
+    const y = 1138;
+    const lineStart = x + 34;
+    const lineEnd = x + 154;
+    const marker = lineStart + (axis.rightPercent / 100) * (lineEnd - lineStart);
+    context.textAlign = "left";
+    context.fillText(meta.left, x, y + 7);
+    context.textAlign = "right";
+    context.fillText(meta.right, x + 188, y + 7);
+    context.beginPath();
+    context.moveTo(lineStart, y);
+    context.lineTo(lineEnd, y);
+    context.stroke();
+    context.beginPath();
+    context.arc(marker, y, 8, 0, Math.PI * 2);
+    context.fill();
+  });
+
+  context.fillStyle = "#9c3a2e";
+  context.font = '700 26px "Noto Sans SC", sans-serif';
+  context.fillText("向内生长 · 人格拍立得", 132, 1190);
+  context.fillStyle = "#6a665f";
+  context.textAlign = "right";
+  context.font = '400 24px "Noto Sans SC", sans-serif';
+  context.fillText(getDateStamp(), 948, 1190);
+  context.fillText("tunqigua.github.io/inner-compass-mbti/", 948, 1240);
+  return canvasToBlob(canvas);
+}
+
+function releaseShareObjectUrl() {
+  if (!shareObjectUrl) return;
+  URL.revokeObjectURL(shareObjectUrl);
+  shareObjectUrl = "";
+}
+
+function openSharePreview(blob, result) {
+  releaseShareObjectUrl();
+  lastFocusedElement = $("#share-result");
+  if (blob) {
+    shareObjectUrl = URL.createObjectURL(blob);
+    sharePreview.src = shareObjectUrl;
+    sharePreview.hidden = false;
+    downloadResult.href = shareObjectUrl;
+    downloadResult.download = `向内生长-${result.code}-人格拍立得.png`;
+    downloadResult.hidden = false;
+  } else {
+    sharePreview.removeAttribute("src");
+    sharePreview.hidden = true;
+    downloadResult.hidden = true;
+  }
+  if (!shareDialog.open) shareDialog.showModal();
+  document.body.classList.add("dialog-open");
+}
+
+async function shareResult() {
+  const result = currentResult || calculateResult();
+  const sharableUrl = getShareUrl(result);
+  const text = `我的本次人格倾向是 ${result.code} · ${result.profile.name}。${result.profile.tagline}`;
+  const blob = await (shareBlobPromise || createShareImageBlob(result).catch(() => null));
+  shareBlobPromise = Promise.resolve(blob);
+
+  if (blob && navigator.share && typeof File === "function") {
+    const file = new File([blob], `向内生长-${result.code}-人格拍立得.png`, { type: "image/png" });
+    const filePayload = { files: [file], title: "向内生长｜我的人格倾向", text };
+    if (sharableUrl) filePayload.url = sharableUrl;
+    try {
+      if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+        await navigator.share(filePayload);
+        showToast("分享面板已打开");
+        return;
+      }
     } catch (error) {
       if (error && error.name === "AbortError") return;
     }
   }
 
-  const shareText = sharableUrl ? `${text}\n${sharableUrl}` : text;
-  if (navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(shareText);
-      showToast("结果摘要已复制到剪贴板");
-      return;
-    } catch {
-      // Fall through to the local copy method below.
-    }
-  }
-  showToast(copyTextFallback(shareText) ? "结果摘要已复制到剪贴板" : "暂时无法自动分享，请截屏保存结果");
+  openSharePreview(blob, result);
 }
 
 function setupTest() {
+  setupProgressSteps();
   $$('[data-start-test]').forEach(button => button.addEventListener("click", showTest));
   $$('[data-close-test]').forEach(button => button.addEventListener("click", closeTest));
   answerScale.addEventListener("change", handleAnswer);
   previousQuestion.addEventListener("click", () => {
-    clearTimeout(advanceTimer);
+    cancelAdvance();
     if (currentQuestion > 0) {
       currentQuestion -= 1;
+      saveProgress();
       renderQuestion();
     }
   });
+  skipDeveloping.addEventListener("click", finishDeveloping);
   $("#retry-test").addEventListener("click", retryTest);
   $("#share-result").addEventListener("click", shareResult);
   testDialog.addEventListener("close", restoreFocus);
+
+  document.addEventListener("keydown", event => {
+    if (!testDialog.open || experienceState !== "question" || answerLocked) return;
+    if (!/^[1-5]$/.test(event.key) || event.altKey || event.ctrlKey || event.metaKey) return;
+    const options = $$('input[name="answer"]', answerScale);
+    const input = options[Number(event.key) - 1];
+    if (!input) return;
+    event.preventDefault();
+    input.click();
+  });
+}
+
+function setupShare() {
+  $("[data-close-share]").addEventListener("click", () => closeDialog(shareDialog));
+  copyResultLink.addEventListener("click", async () => {
+    const result = currentResult || calculateResult();
+    const url = getShareUrl(result);
+    const text = url || `${result.code} · ${result.profile.name}`;
+    let copied = false;
+    if (navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+    }
+    if (!copied) copied = copyTextFallback(text);
+    showToast(copied ? "结果链接已复制" : "暂时无法复制，请长按保存图片");
+  });
+  shareDialog.addEventListener("close", () => {
+    releaseShareObjectUrl();
+    restoreFocus();
+  });
+  shareDialog.addEventListener("click", event => {
+    if (event.target === shareDialog) closeDialog(shareDialog);
+  });
 }
 
 function openGuide(key, trigger) {
@@ -720,7 +1106,7 @@ function setupGuides() {
 }
 
 function restoreFocus() {
-  if (!detailDialog.open && !guideDialog.open && !testDialog.open) {
+  if (!detailDialog.open && !guideDialog.open && !testDialog.open && !shareDialog.open) {
     document.body.classList.remove("dialog-open");
   }
   if (lastFocusedElement && document.contains(lastFocusedElement)) {
@@ -748,7 +1134,7 @@ function setupPageChrome() {
     }
   }, { passive: true });
 
-  [detailDialog, guideDialog].forEach(dialog => {
+  [detailDialog, guideDialog, shareDialog].forEach(dialog => {
     dialog.addEventListener("cancel", event => {
       event.preventDefault();
       closeDialog(dialog);
@@ -766,7 +1152,7 @@ function handleSharedResult() {
   window.setTimeout(() => {
     openPersonality(code);
     showToast(`这是一份朋友分享的 ${code} 人格解读`);
-  }, 700);
+  }, 120);
 }
 
 async function setupVisitorCount() {
@@ -830,9 +1216,12 @@ async function setupVisitorCount() {
 }
 
 function init() {
+  migrateProgress();
+  markVisited();
   renderTypes();
   setupTypeInteractions();
   setupTest();
+  setupShare();
   setupGuides();
   setupPageChrome();
   setupReveal();
