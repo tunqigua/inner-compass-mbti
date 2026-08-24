@@ -316,6 +316,10 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function getPersonalityIcon(code) {
+  return `assets/personality-icons/v1/${String(code).toLowerCase()}.webp`;
+}
+
 function renderTypes() {
   typesGrid.innerHTML = personalities.map((type, index) => {
     const group = groupMeta[type.group];
@@ -323,8 +327,15 @@ function renderTypes() {
       <button class="type-card reveal" type="button" data-type="${type.code}" data-group="${type.group}" style="--delay: ${(index % 4) * 55}ms" aria-label="查看 ${type.code} ${escapeHtml(type.name)} 的详细解读">
         <span class="type-card-inner">
           <span class="type-card-top"><span>${String(index + 1).padStart(2, "0")}</span>${group.en}</span>
-          <span class="type-card-code">${type.code}</span>
-          <h3>${escapeHtml(type.name)}</h3>
+          <span class="type-card-identity">
+            <span class="type-card-copy">
+              <span class="type-card-code">${type.code}</span>
+              <h3>${escapeHtml(type.name)}</h3>
+            </span>
+            <span class="type-card-portrait" aria-hidden="true">
+              <img src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" loading="lazy" decoding="async">
+            </span>
+          </span>
           <span class="type-card-summary">${escapeHtml(type.tagline)}</span>
           <span class="type-card-bottom"><span>${group.label} · ${group.code}</span><span class="type-card-arrow" aria-hidden="true">↗</span></span>
         </span>
@@ -345,7 +356,11 @@ function openPersonality(code, trigger = null) {
         <p class="detail-name">${escapeHtml(type.name)}</p>
         <p class="detail-tagline">${escapeHtml(type.tagline)}</p>
       </div>
-      <div class="detail-seal" aria-hidden="true"><span>${type.code}</span><i></i></div>
+      <div class="detail-seal personality-seal" aria-hidden="true">
+        <img class="personality-icon" src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" decoding="async">
+        <span class="personality-code-badge">${type.code}</span>
+        <i></i>
+      </div>
     </header>
     <div class="detail-body">
       <section class="detail-block">
@@ -573,6 +588,7 @@ function showResult() {
   $("#result-type").textContent = result.code;
   $("#result-name").textContent = result.profile.name;
   $("#result-seal-code").textContent = result.code;
+  $("#result-icon").src = getPersonalityIcon(result.code);
   $("#result-summary").textContent = `${result.profile.tagline} 这是一张理解偏好的地图，不是对你的定义。`;
   $("#result-reading-copy").textContent = result.profile.reading + (nearCount >= 2
     ? " 你的多个维度靠近中点，说明你可能会随情境灵活切换，不必急着选定唯一答案。"
@@ -825,4 +841,3 @@ function init() {
 }
 
 init();
-
