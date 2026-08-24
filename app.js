@@ -326,6 +326,8 @@ const developingStage = $("#developing-stage");
 const developingCopy = $("#developing-copy");
 const developingPhoto = $("#developing-photo");
 const developingIcon = $("#developing-icon");
+const developingIconMono = $("#developing-icon-mono");
+const developingColor = $(".developing-color", developingPhoto);
 const skipDeveloping = $("#skip-developing");
 const resultPhoto = $("#result-photo");
 const resultCaption = $("#result-caption");
@@ -343,9 +345,13 @@ let answers = Array(questions.length).fill(null);
 let advanceTimer = null;
 let advanceToken = 0;
 let developingTimer = null;
+let developingStartTimer = null;
+let developingEndHandler = null;
 let developingToken = 0;
+let developingCommitPending = false;
 let shutterTimer = null;
 let toastTimer = null;
+let stateFocusTimer = null;
 let lastFocusedElement = null;
 let experienceState = "question";
 let answerLocked = false;
@@ -376,12 +382,12 @@ function renderTypes() {
   typesGrid.innerHTML = personalities.map((type, index) => {
     const group = groupMeta[type.group];
     return `
-      <a class="type-card" href="?result=${type.code}" data-type="${type.code}" data-group="${type.group}" aria-label="查看 ${type.code} ${escapeHtml(type.name)} 人格解读">
-        <span class="type-photo">
+      <a class="type-card native-paper" href="?result=${type.code}" data-type="${type.code}" data-group="${type.group}" aria-label="查看 ${type.code} ${escapeHtml(type.name)} 人格解读">
+        <div class="native-window type-photo">
           <img src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" loading="lazy" decoding="async">
-          <strong>${type.code}</strong><span>${escapeHtml(type.name)}</span>
-        </span>
-        <span class="type-border"><p>${escapeHtml(type.tagline)}</p><small>${group.code} · ${group.label}</small></span>
+        </div>
+        <div class="native-caption type-border"><div class="type-title"><strong>${type.code}</strong><span>${escapeHtml(type.name)}</span></div><p>${escapeHtml(type.tagline)}</p><small>${group.code} · ${group.label}</small></div>
+        <img class="native-frame" src="assets/frames/native-polaroid-frame-v1.webp" alt="" aria-hidden="true" width="1130" height="1392" loading="lazy" decoding="async">
       </a>`;
   }).join("");
   $$(".type-card", typesGrid).forEach(card => applyPersonalityVisual(card, card.dataset.type));
@@ -411,12 +417,13 @@ function openPersonality(code, trigger = null) {
   lastFocusedElement = trigger || document.activeElement;
   detailContent.innerHTML = `
     <div class="detail-layout">
-      <article class="detail-polaroid polaroid">
-        <div class="detail-photo polaroid-photo" style="--personality-color:${visual.color};--personality-ink:${visual.ink}" data-tone="${visual.tone}">
+      <article class="detail-polaroid native-paper">
+        <div class="detail-photo native-window" style="--personality-color:${visual.color};--personality-ink:${visual.ink}" data-tone="${visual.tone}">
           <img class="personality-icon" src="${getPersonalityIcon(type.code)}" alt="" width="512" height="512" decoding="async">
           <strong>${type.code}</strong><span>${escapeHtml(type.name)}</span>
         </div>
-        <footer class="detail-caption polaroid-border"><p class="polaroid-caption">${group.code} · ${group.label}</p></footer>
+        <footer class="detail-caption native-caption"><p class="polaroid-caption">${group.code} · ${group.label}</p></footer>
+        <img class="native-frame" src="assets/frames/native-polaroid-frame-v1.webp" alt="" aria-hidden="true" width="1130" height="1392" decoding="async">
       </article>
       <div class="detail-copy">
         <p class="detail-group">${group.label} · ${group.code}</p>
@@ -572,11 +579,20 @@ function cancelAdvance() {
 
 function cancelDeveloping() {
   clearTimeout(developingTimer);
+  clearTimeout(developingStartTimer);
   developingTimer = null;
+  developingStartTimer = null;
+  if (developingEndHandler && developingColor) {
+    developingColor.removeEventListener("animationend", developingEndHandler);
+  }
+  developingEndHandler = null;
+  developingCommitPending = false;
+  if (skipDeveloping) skipDeveloping.disabled = false;
   developingToken += 1;
 }
 
 function setExperienceState(nextState, { focus = true } = {}) {
+  clearTimeout(stateFocusTimer);
   experienceState = nextState;
   if (experienceShell) experienceShell.dataset.appState = nextState;
   const stages = {
@@ -591,6 +607,12 @@ function setExperienceState(nextState, { focus = true } = {}) {
     stage.inert = !active;
   });
   if (testProgressMeta) testProgressMeta.hidden = nextState !== "question";
+  const labels = {
+    question: "question-title",
+    developing: "developing-copy",
+    result: "result-heading"
+  };
+  if (testDialog && labels[nextState]) testDialog.setAttribute("aria-labelledby", labels[nextState]);
   if (!focus) return;
   const focusTarget = nextState === "question"
     ? questionTitle
@@ -598,8 +620,14 @@ function setExperienceState(nextState, { focus = true } = {}) {
       ? $("#result-heading")
       : developingStage;
   if (focusTarget) {
-    if (nextState === "developing") focusTarget.tabIndex = -1;
-    window.setTimeout(() => focusTarget.focus({ preventScroll: true }), 30);
+    if (nextState === "developing") {
+      focusTarget.tabIndex = -1;
+      focusTarget.setAttribute("aria-labelledby", "developing-copy");
+    }
+    stateFocusTimer = window.setTimeout(() => {
+      if (experienceState !== nextState || !testDialog.open || focusTarget.hidden) return;
+      focusTarget.focus({ preventScroll: true });
+    }, 30);
   }
 }
 
@@ -625,6 +653,7 @@ function showTest() {
 function closeTest() {
   cancelAdvance();
   cancelDeveloping();
+  clearTimeout(stateFocusTimer);
   clearTimeout(shutterTimer);
   if (experienceState === "question" && answers.some(value => value !== null)) saveProgress();
   closeDialog(testDialog);
@@ -747,37 +776,7 @@ function getDateStamp() {
   return `${values.year}.${values.month}.${values.day}`;
 }
 
-function beginDeveloping() {
-  cancelAdvance();
-  cancelDeveloping();
-  currentResult = calculateResult();
-  applyPersonalityVisual(developingPhoto, currentResult.code);
-  if (developingIcon) developingIcon.src = getPersonalityIcon(currentResult.code);
-  setExperienceState("developing");
-  if (developingCopy) developingCopy.textContent = "照片正在显影，别急";
-  developingStage.classList.remove("is-developing");
-  void developingStage.offsetWidth;
-  developingStage.classList.add("is-developing");
-  testStatus.textContent = "照片正在显影";
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const duration = reducedMotion ? 120 : 1800;
-  const token = ++developingToken;
-  developingTimer = window.setTimeout(() => {
-    if (token !== developingToken || experienceState !== "developing" || !testDialog.open) return;
-    showResult(currentResult);
-  }, duration);
-}
-
-function finishDeveloping() {
-  if (experienceState !== "developing") return;
-  cancelDeveloping();
-  showResult(currentResult || calculateResult());
-}
-
-function showResult(result = calculateResult()) {
-  cancelAdvance();
-  cancelDeveloping();
-  currentResult = result;
+function populateResult(result) {
   const nearCount = result.axes.filter(item => item.nearBoundary).length;
   const visual = getPersonalityVisual(result.code);
 
@@ -819,6 +818,88 @@ function showResult(result = calculateResult()) {
       <span class="dimension-letter ${leftDominant ? "" : "is-dominant"}">${meta.right}</span>
     </div>`;
   }).join("");
+}
+
+function decodeImage(image) {
+  if (!image) return Promise.resolve();
+  if (image.complete && image.naturalWidth) return Promise.resolve();
+  if (typeof image.decode === "function") return image.decode().catch(() => {});
+  return new Promise(resolve => {
+    image.addEventListener("load", resolve, { once: true });
+    image.addEventListener("error", resolve, { once: true });
+  });
+}
+
+function armDevelopingCompletion(token) {
+  const complete = () => finishDeveloping(token);
+  if (developingColor) {
+    developingEndHandler = event => {
+      if (event.target !== developingColor || event.animationName !== "develop-color-scan") return;
+      complete();
+    };
+    developingColor.addEventListener("animationend", developingEndHandler);
+  }
+  developingTimer = window.setTimeout(complete, 2350);
+}
+
+function beginDeveloping() {
+  cancelAdvance();
+  cancelDeveloping();
+  currentResult = calculateResult();
+  const iconSource = getPersonalityIcon(currentResult.code);
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const token = ++developingToken;
+
+  applyPersonalityVisual(developingPhoto, currentResult.code);
+  if (developingIcon) developingIcon.src = iconSource;
+  if (developingIconMono) developingIconMono.src = iconSource;
+  populateResult(currentResult);
+  developingStage.classList.remove("is-developing");
+  setExperienceState("developing", { focus: !reducedMotion });
+  if (developingCopy) developingCopy.textContent = "照片正在显影，别急";
+  testStatus.textContent = "照片正在显影";
+
+  if (reducedMotion) {
+    developingTimer = window.setTimeout(() => finishDeveloping(token), 120);
+    return;
+  }
+
+  Promise.race([
+    Promise.allSettled([decodeImage(developingIcon), decodeImage(developingIconMono), decodeImage($("#result-icon"))]),
+    new Promise(resolve => {
+      developingStartTimer = window.setTimeout(resolve, 150);
+    })
+  ]).then(() => {
+    clearTimeout(developingStartTimer);
+    developingStartTimer = null;
+    if (token !== developingToken || experienceState !== "developing" || !testDialog.open) return;
+    void developingStage.offsetWidth;
+    developingStage.classList.add("is-developing");
+    armDevelopingCompletion(token);
+  });
+}
+
+function finishDeveloping(token = developingToken, { skipped = false } = {}) {
+  if (token !== developingToken || experienceState !== "developing" || developingCommitPending) return;
+  const result = currentResult || calculateResult();
+  cancelDeveloping();
+  const commitToken = developingToken;
+  developingCommitPending = true;
+  if (skipDeveloping) skipDeveloping.disabled = true;
+  const commit = () => {
+    if (!developingCommitPending || commitToken !== developingToken || experienceState !== "developing" || !testDialog.open) return;
+    developingCommitPending = false;
+    if (skipDeveloping) skipDeveloping.disabled = false;
+    showResult(result);
+  };
+  commit();
+}
+
+function showResult(result = calculateResult()) {
+  cancelAdvance();
+  cancelDeveloping();
+  currentResult = result;
+  populateResult(result);
 
   clearProgress();
   setExperienceState("result");
@@ -1039,7 +1120,7 @@ function setupTest() {
       renderQuestion();
     }
   });
-  skipDeveloping.addEventListener("click", finishDeveloping);
+  skipDeveloping.addEventListener("click", () => finishDeveloping(developingToken, { skipped: true }));
   $("#retry-test").addEventListener("click", retryTest);
   $("#share-result").addEventListener("click", shareResult);
   testDialog.addEventListener("close", restoreFocus);
