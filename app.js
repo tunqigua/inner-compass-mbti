@@ -534,18 +534,64 @@ function setupTypeInteractions() {
 function setupReveal() {
   const items = $$(".reveal");
   if (!("IntersectionObserver" in window) || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    items.forEach(item => item.classList.add("is-visible"));
+    items.forEach(item => {
+      item.classList.remove("reveal-pending");
+      item.classList.add("is-visible");
+    });
     return;
   }
+  const revealItem = item => {
+    item.classList.remove("reveal-pending");
+    item.classList.add("is-visible");
+  };
   const observer = new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (entry.isIntersecting) {
-        entry.target.classList.add("is-visible");
+        revealItem(entry.target);
         observer.unobserve(entry.target);
       }
     });
-  }, { threshold: 0.12, rootMargin: "0px 0px -45px" });
-  items.forEach(item => observer.observe(item));
+  }, { threshold: 0.01, rootMargin: "0px 0px 180px" });
+  items.forEach(item => {
+    const bounds = item.getBoundingClientRect();
+    const isInInitialViewport = bounds.top < window.innerHeight + 180 && bounds.bottom > -45;
+    if (isInInitialViewport) revealItem(item);
+    else {
+      item.classList.add("reveal-pending");
+      observer.observe(item);
+    }
+  });
+}
+
+function setupTypeImageLoading() {
+  const images = $$(".type-photo img", typesGrid);
+  if (!images.length) return;
+
+  const loadImages = (items, priority = "low") => {
+    items.forEach(image => {
+      image.fetchPriority = priority;
+      image.loading = "eager";
+    });
+  };
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const saveData = Boolean(connection?.saveData);
+  const warmFirstRows = () => loadImages(images.slice(0, 4));
+
+  if (!saveData) {
+    if ("requestIdleCallback" in window) window.requestIdleCallback(warmFirstRows, { timeout: 1800 });
+    else window.setTimeout(warmFirstRows, 700);
+  }
+
+  if (!("IntersectionObserver" in window)) {
+    if (!saveData) loadImages(images, "auto");
+    return;
+  }
+  const observer = new IntersectionObserver(entries => {
+    if (!entries.some(entry => entry.isIntersecting)) return;
+    loadImages(images, "auto");
+    observer.disconnect();
+  }, { rootMargin: "1000px 0px" });
+  observer.observe(typesGrid);
 }
 
 function isValidAnswers(value) {
@@ -1668,9 +1714,9 @@ async function createShareImageBlob(result) {
 
   context.fillStyle = visual.ink;
   context.textAlign = icon ? "left" : "center";
-  context.font = '700 96px "Noto Serif SC", serif';
+  context.font = '700 96px "Songti SC", "STSong", serif';
   context.fillText(getResultDisplayCode(result), icon ? 184 : 540, 790);
-  context.font = '700 46px "Noto Serif SC", serif';
+  context.font = '700 46px "Songti SC", "STSong", serif';
   if (icon) {
     drawWrappedText(context, presentation.name, 184, 858, 700, 56, 2);
   } else {
@@ -2134,6 +2180,7 @@ function init() {
   setupGuides();
   setupPageChrome();
   setupReveal();
+  setupTypeImageLoading();
   updateLastResultEntry();
   setupHistory();
 }
