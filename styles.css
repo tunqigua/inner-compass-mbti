@@ -881,13 +881,96 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 .answer-review button.is-current { border-color: var(--cinnabar); color: var(--cinnabar); }
 
 .live-develop-preview {
-  width: 190px;
+  width: 202px;
   min-width: 0;
   align-self: start;
   display: block;
 }
-.live-develop-preview .abstract-exposure { width: 100%; aspect-ratio: 4 / 5; }
-.live-develop-preview figcaption { display: none; }
+.live-develop-paper {
+  position: relative;
+  padding: 9px 9px 31px;
+  background: var(--photo-white);
+  box-shadow: 0 12px 24px rgba(24, 23, 20, 0.12);
+  transform: rotate(1.2deg);
+}
+
+.live-develop-window {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--personality-color, #ece9e1);
+  transition: background-color 0.4s ease;
+}
+
+.live-develop-window > .abstract-exposure {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.live-develop-color {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  overflow: hidden;
+  background: var(--personality-color, transparent);
+  opacity: 0.68;
+  mix-blend-mode: multiply;
+  transition: background-color 0.42s ease, opacity 0.32s ease;
+}
+
+.live-develop-icon {
+  position: absolute;
+  right: -6%;
+  bottom: -3%;
+  width: 82%;
+  height: 106%;
+  object-fit: contain;
+  object-position: right bottom;
+  opacity: 0;
+  filter: grayscale(1) saturate(0.25) blur(2.4px);
+  transition: opacity 0.28s ease, filter 0.45s ease;
+}
+
+.live-develop-icon.is-active {
+  opacity: var(--live-icon-opacity, 0.08);
+  filter: grayscale(var(--live-icon-gray, 1)) saturate(var(--live-icon-saturation, 0.25)) blur(var(--live-icon-blur, 2.4px));
+}
+
+.live-develop-flash {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 78% 18%, rgba(255, 253, 244, 0.9), transparent 44%);
+  opacity: 0;
+}
+
+.live-develop-preview.is-exposing .live-develop-flash { animation: live-exposure-flash 0.28s ease both; }
+
+.live-develop-caption {
+  position: absolute;
+  right: 9px;
+  bottom: 8px;
+  left: 9px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-family: var(--hand);
+  font-size: 13px;
+}
+
+.live-develop-caption strong {
+  color: var(--cinnabar);
+  font-family: var(--serif);
+  font-size: 12px;
+  font-weight: 700;
+}
 
 .abstract-exposure {
   --develop-progress: 0;
@@ -1540,8 +1623,10 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   z-index: 2;
   display: block;
   background: var(--personality-color, var(--paper-deep));
-  clip-path: inset(0 100% 0 0);
-  opacity: 0;
+  clip-path: inset(0 0 0 0);
+  opacity: var(--develop-start-opacity, 0);
+  filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
+  transition: opacity 0.3s ease, filter 0.45s ease;
 }
 
 .developing-color .developing-icon {
@@ -1552,7 +1637,8 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   height: 100%;
   object-fit: contain;
   object-position: right bottom;
-  opacity: 0;
+  opacity: var(--develop-start-opacity, 0);
+  filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
 }
 
 .developing-color:has(.developing-icon[hidden]) { background: transparent; }
@@ -1665,21 +1751,47 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 }
 
 @keyframes develop-color-scan {
-  0%, 10% { clip-path: inset(0 100% 0 0); opacity: 0; }
-  34% { clip-path: inset(0 66% 0 0); opacity: 0.35; }
-  68% { clip-path: inset(0 24% 0 0); opacity: 0.78; }
-  84%, 100% { clip-path: inset(0 0 0 0); opacity: 1; }
+  0%, 12% {
+    clip-path: inset(0 0 0 0);
+    opacity: var(--develop-start-opacity, 0);
+    filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
+  }
+  48% { opacity: 0.86; filter: grayscale(0.16) saturate(0.86) blur(0.3px); }
+  82%, 100% { opacity: 1; filter: grayscale(0) saturate(1) blur(0); }
 }
 
 @keyframes subject-emerge {
-  0%, 30% { opacity: 0; }
-  72%, 100% { opacity: 1; }
+  0%, 12% {
+    opacity: var(--develop-start-opacity, 0);
+    filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
+  }
+  72%, 100% { opacity: 1; filter: grayscale(0) saturate(1) blur(0); }
 }
 
 @keyframes darkroom-light {
   0%, 22%, 100% { opacity: 0; }
   48% { opacity: 0.42; }
 }
+
+@keyframes live-exposure-flash {
+  0%, 100% { opacity: 0; transform: translateX(-8%); }
+  42% { opacity: 0.72; }
+  68% { opacity: 0.2; }
+}
+
+@keyframes result-photo-arrive {
+  from { opacity: 0; transform: translateY(12px) rotate(0.2deg); }
+  to { opacity: 1; transform: translateY(0) rotate(0.2deg); }
+}
+
+@keyframes result-copy-arrive {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.result-stage.is-arriving .result-polaroid { animation: result-photo-arrive 0.42s cubic-bezier(0.2, 0.72, 0.2, 1) both; }
+.result-stage.is-arriving .result-overview,
+.result-stage.is-arriving .result-interpretation { animation: result-copy-arrive 0.32s ease 0.12s both; }
 
 @media (max-width: 760px) {
   .hero-stage .hero-polaroid,
@@ -1695,7 +1807,12 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 
   .question-sheet.test-polaroid { width: min(100%, 520px); padding: 0; }
   .question-layout { grid-template-columns: 1fr; gap: 18px; }
-  .live-develop-preview { display: none; }
+  .live-develop-preview { order: -1; width: 100%; }
+  .live-develop-paper { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 8px 12px; }
+  .live-develop-window { width: 56px; aspect-ratio: 4 / 5; }
+  .live-develop-caption { position: static; min-width: 0; }
+  .live-develop-caption span { color: var(--ink-mute); font-size: 12px; }
+  .live-develop-caption strong { font-size: 12px; }
   .answer-review > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .completion-actions { padding: 12px 16px; }
   .question-sheet .test-border { min-height: 68px; padding: 12px 18px; }
@@ -1767,7 +1884,10 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   .developing-polaroid.native-paper,
   .result-polaroid.native-paper { width: 250px; padding: 0; }
   .question-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .live-develop-preview { display: none; }
+  .live-develop-preview { display: block; width: 100%; }
+  .live-develop-paper { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 12px; align-items: center; padding: 7px 10px; }
+  .live-develop-window { width: 56px; }
+  .live-develop-caption { position: static; }
   .completion-actions { padding: 8px 20px; }
   .result-stage {
     grid-template-columns: minmax(0, 1fr);
@@ -1791,12 +1911,21 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 
 @media (prefers-reduced-motion: reduce) {
   .abstract-exposure > span { transition: none; }
+  .live-develop-icon,
+  .live-develop-window,
+  .live-develop-color { transition: none; }
+  .live-develop-preview.is-exposing .live-develop-flash,
+  .result-stage.is-arriving .result-polaroid,
+  .result-stage.is-arriving .result-overview,
+  .result-stage.is-arriving .result-interpretation { animation: none !important; }
   .question-stage.is-changing,
   .developing-stage.is-developing .developing-polaroid,
   .developing-stage.is-developing .developing-color,
   .developing-stage.is-developing .developing-icon,
   .developing-stage.is-developing .developing-light-leak { animation: none !important; }
   .developing-color { clip-path: inset(0 0 0 0); opacity: 1; }
+  .developing-color,
+  .developing-color .developing-icon { filter: none; }
   .developing-icon { opacity: 1; }
   .developing-light-leak { display: none; }
 }

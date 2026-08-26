@@ -341,6 +341,10 @@ const generateResult = $("#generate-result");
 const answerReview = $("#answer-review");
 const answerReviewList = $("#answer-review-list");
 const liveDevelopPreview = $("#live-develop-preview");
+const liveDevelopWindow = $("#live-develop-window");
+const liveDevelopIconA = $("#live-develop-icon-a");
+const liveDevelopIconB = $("#live-develop-icon-b");
+const liveDevelopCount = $("#live-develop-count");
 const developingStage = $("#developing-stage");
 const developingCopy = $("#developing-copy");
 const developingPhoto = $("#developing-photo");
@@ -375,6 +379,8 @@ let developingEndHandler = null;
 let developingToken = 0;
 let developingCommitPending = false;
 let shutterTimer = null;
+let liveDevelopActiveIcon = liveDevelopIconA;
+let liveDevelopIconToken = 0;
 let toastTimer = null;
 let stateFocusTimer = null;
 const dialogReturnFocus = new WeakMap();
@@ -398,6 +404,20 @@ function escapeHtml(value) {
 
 function getPersonalityIcon(code) {
   return `assets/personality-icons/v1/${String(code).toLowerCase()}.webp`;
+}
+
+function getPreviewIconCode(scores) {
+  return personalities
+    .map((type, index) => {
+      const fit = AXIS_ORDER.reduce((total, axis) => {
+        const meta = axisMeta[axis];
+        const direction = type.code.includes(meta.left) ? 1 : -1;
+        const score = scores[axis];
+        return total + (score === 0 ? 0 : direction === Math.sign(score) ? Math.abs(score) : -Math.abs(score));
+      }, 0);
+      return { code: type.code, fit, index };
+    })
+    .sort((a, b) => b.fit - a.fit || a.index - b.index)[0]?.code || "INFJ";
 }
 
 function renderTypes() {
@@ -766,8 +786,14 @@ function setExperienceState(nextState, { focus = true } = {}) {
 }
 
 function triggerShutter() {
-  // Keep answering visually calm; progress and the selected radio provide feedback.
   clearTimeout(shutterTimer);
+  if (!liveDevelopPreview) return;
+  liveDevelopPreview.classList.remove("is-exposing");
+  void liveDevelopPreview.offsetWidth;
+  liveDevelopPreview.classList.add("is-exposing");
+  shutterTimer = window.setTimeout(() => {
+    liveDevelopPreview.classList.remove("is-exposing");
+  }, 280);
 }
 
 function showTest(trigger = null, { updateHistory = true } = {}) {
@@ -1007,14 +1033,58 @@ function applyAbstractDevelopModel(target, model, boundaryState = "open") {
   });
 }
 
+function syncLiveDevelopIcon(code) {
+  const nextIcon = liveDevelopActiveIcon === liveDevelopIconA ? liveDevelopIconB : liveDevelopIconA;
+  if (!nextIcon || !liveDevelopActiveIcon) return;
+  const source = getPersonalityIcon(code);
+  const token = ++liveDevelopIconToken;
+  nextIcon.dataset.iconCode = code;
+  nextIcon.src = source;
+  const swap = () => {
+    if (token !== liveDevelopIconToken) return;
+    liveDevelopActiveIcon.classList.remove("is-active");
+    nextIcon.classList.add("is-active");
+    liveDevelopActiveIcon = nextIcon;
+  };
+  void decodeImage(nextIcon).then(swap);
+}
+
+function getResultDisplayCode(result) {
+  return result.boundaryState === "typed" || result.boundaryState === "near"
+    ? result.code
+    : result.boundaryState === "one-tie"
+      ? "X"
+      : "OPEN";
+}
+
 function syncLiveDevelopPreview() {
   const model = getAbstractDevelopModel(answers);
-  if (!model || !liveDevelopPreview) return;
-  applyAbstractDevelopModel(liveDevelopPreview, model, "open");
+  if (!model || !liveDevelopPreview || !liveDevelopWindow) return;
+  const previewCode = getPreviewIconCode(model.scores);
+  const previewVisual = model.complete
+    ? getResultPresentation(buildResultFromScores(model.scores)).visual
+    : {
+      color: model.variables["--develop-tone"],
+      ink: "#f8f3e9",
+      tone: "high"
+    };
+  const progress = model.progress;
+  const magnitude = AXIS_ORDER.reduce((sum, axis) => sum + Math.abs(model.scores[axis]), 0) / 48;
+  const iconOpacity = Math.min(0.78, 0.18 + (progress * 0.48) + (magnitude * 0.12));
+  const iconGray = Math.max(0, 0.82 - (progress * 0.82));
+  const iconSaturation = Math.min(1, 0.28 + (progress * 0.72));
+  const iconBlur = Math.max(0, 2.4 - (progress * 2.4));
+
+  applyAbstractDevelopModel(liveDevelopWindow, model, "open");
+  liveDevelopWindow.style.setProperty("--personality-color", previewVisual.color);
+  liveDevelopWindow.style.setProperty("--personality-ink", previewVisual.ink);
+  liveDevelopWindow.style.setProperty("--live-icon-opacity", iconOpacity.toFixed(3));
+  liveDevelopWindow.style.setProperty("--live-icon-gray", iconGray.toFixed(3));
+  liveDevelopWindow.style.setProperty("--live-icon-saturation", iconSaturation.toFixed(3));
+  liveDevelopWindow.style.setProperty("--live-icon-blur", `${iconBlur.toFixed(2)}px`);
+  syncLiveDevelopIcon(previewCode);
+  if (liveDevelopCount) liveDevelopCount.textContent = `${String(model.answered).padStart(2, "0")} / ${model.total}`;
   liveDevelopPreview.setAttribute("aria-hidden", "true");
-  liveDevelopPreview.removeAttribute("aria-live");
-  liveDevelopPreview.removeAttribute("aria-atomic");
-  liveDevelopPreview.removeAttribute("aria-label");
 }
 
 function expandCandidateCodes(axes) {
@@ -1154,10 +1224,11 @@ function populateResult(result) {
   const visualBoundaryState = getVisualBoundaryState(result);
   const showPerson = visualBoundaryState === "typed" || visualBoundaryState === "near";
   const abstractModel = buildAbstractDevelopModel(result.scores, questions.length);
+  const displayCode = getResultDisplayCode(result);
 
-  $("#result-type").textContent = result.code;
+  $("#result-type").textContent = displayCode;
   $("#result-name").textContent = presentation.name;
-  $("#result-seal-code").textContent = result.code;
+  $("#result-seal-code").textContent = displayCode;
   const resultIcon = $("#result-icon");
   if (showPerson && presentation.iconCode) {
     resultIcon.src = getPersonalityIcon(presentation.iconCode);
@@ -1195,7 +1266,7 @@ function populateResult(result) {
     resultPhoto.dataset.tone = visual.tone;
     resultPhoto.dataset.resultState = result.boundaryState;
   }
-  if (resultCaption) resultCaption.textContent = presentation.caption;
+  if (resultCaption) resultCaption.textContent = presentation.caption.replace(result.code, displayCode);
   if (resultStampDate) resultStampDate.textContent = getDateStamp(result.completedAt);
 
   $("#dimension-bars").innerHTML = result.axes.map(item => {
@@ -1258,6 +1329,12 @@ function beginDeveloping() {
   const visualBoundaryState = getVisualBoundaryState(currentResult);
   const showPerson = (visualBoundaryState === "typed" || visualBoundaryState === "near") && Boolean(iconSource);
   const abstractModel = buildAbstractDevelopModel(currentResult.scores, questions.length);
+  const liveModel = getAbstractDevelopModel(answers);
+  const liveProgress = liveModel?.progress ?? 1;
+  const developingStartOpacity = Math.min(0.78, 0.08 + (liveProgress * 0.62));
+  const developingStartGray = Math.max(0, 0.82 - (liveProgress * 0.82));
+  const developingStartSaturation = Math.min(1, 0.28 + (liveProgress * 0.72));
+  const developingStartBlur = `${Math.max(0, 2.4 - (liveProgress * 2.4)).toFixed(2)}px`;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const token = ++developingToken;
 
@@ -1265,6 +1342,10 @@ function beginDeveloping() {
     applyAbstractDevelopModel(developingPhoto, abstractModel, visualBoundaryState);
     developingPhoto.style.setProperty("--personality-color", presentation.visual.color);
     developingPhoto.style.setProperty("--personality-ink", presentation.visual.ink);
+    developingPhoto.style.setProperty("--develop-start-opacity", developingStartOpacity.toFixed(3));
+    developingPhoto.style.setProperty("--develop-start-gray", developingStartGray.toFixed(3));
+    developingPhoto.style.setProperty("--develop-start-saturation", developingStartSaturation.toFixed(3));
+    developingPhoto.style.setProperty("--develop-start-blur", developingStartBlur);
     developingPhoto.dataset.tone = presentation.visual.tone;
     developingPhoto.dataset.resultState = currentResult.boundaryState;
   }
@@ -1334,9 +1415,12 @@ function showResult(result = calculateResult(), { persist = true, clearDraft = t
   if (persist) saveLastResult(result);
   if (clearDraft) clearProgress();
   setExperienceState("result");
+  resultStage.classList.remove("is-arriving");
+  void resultStage.offsetWidth;
+  resultStage.classList.add("is-arriving");
   if (experienceShell) experienceShell.scrollTop = 0;
   const presentation = getResultPresentation(result);
-  testStatus.textContent = `${presentation.stateLabel}：${result.code}，${presentation.name}`;
+  testStatus.textContent = `${presentation.stateLabel}：${getResultDisplayCode(result)}，${presentation.name}`;
   shareBlobPromise = createShareImageBlob(result).catch(() => null);
   if (updateRoute) replaceOverlayRoute(getShareHash(result), "result");
 }
@@ -1585,7 +1669,7 @@ async function createShareImageBlob(result) {
   context.fillStyle = visual.ink;
   context.textAlign = icon ? "left" : "center";
   context.font = '700 96px "Noto Serif SC", serif';
-  context.fillText(result.code, icon ? 184 : 540, 790);
+  context.fillText(getResultDisplayCode(result), icon ? 184 : 540, 790);
   context.font = '700 46px "Noto Serif SC", serif';
   if (icon) {
     drawWrappedText(context, presentation.name, 184, 858, 700, 56, 2);
@@ -1674,7 +1758,7 @@ async function shareResult() {
   const result = currentResult || calculateResult();
   const presentation = getResultPresentation(result);
   const sharableUrl = getShareUrl(result);
-  const text = `我的本次人格快照是 ${result.code} · ${presentation.name}。${presentation.summary}`;
+  const text = `我的本次人格快照是 ${getResultDisplayCode(result)} · ${presentation.name}。${presentation.summary}`;
   const blob = await (shareBlobPromise || createShareImageBlob(result).catch(() => null));
   shareBlobPromise = Promise.resolve(blob);
 

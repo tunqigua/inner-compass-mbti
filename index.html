@@ -168,7 +168,7 @@
     </section>
 
     <section class="closing" id="closing" aria-labelledby="closing-title">
-      <div class="content-shell closing-inner reveal"><p class="polaroid-caption">下一次拍照前</p><h2 id="closing-title">你今天拍的这张，<br>三个月后可能完全不一样。</h2><button class="btn-primary" type="button" data-start-test>三个月后再来拍一张</button></div>
+      <div class="content-shell closing-inner reveal"><p class="polaroid-caption">下一次拍照前</p><h2 id="closing-title">你今天拍的这张，<br>三个月后可能完全不一样。</h2><button class="btn-primary" type="button" data-start-test>再拍一张快照</button></div>
     </section>
   </main>
 
@@ -197,12 +197,22 @@
                 </div>
               </div>
               <figure class="live-develop-preview" id="live-develop-preview" aria-hidden="true">
-                <div class="abstract-exposure" aria-hidden="true">
-                  <span class="abstract-shadow"></span>
-                  <span class="abstract-flow"></span>
-                  <span class="abstract-grid"></span>
-                  <span class="abstract-light"></span>
-                  <span class="abstract-grain"></span>
+                <div class="live-develop-paper">
+                  <div class="live-develop-window" id="live-develop-window">
+                    <div class="abstract-exposure" aria-hidden="true">
+                      <span class="abstract-shadow"></span>
+                      <span class="abstract-flow"></span>
+                      <span class="abstract-grid"></span>
+                      <span class="abstract-light"></span>
+                      <span class="abstract-grain"></span>
+                    </div>
+                    <div class="live-develop-color" aria-hidden="true">
+                      <img class="live-develop-icon is-active" id="live-develop-icon-a" src="assets/personality-icons/v1/infj.webp" alt="" width="512" height="512" decoding="async">
+                      <img class="live-develop-icon" id="live-develop-icon-b" src="assets/personality-icons/v1/infj.webp" alt="" width="512" height="512" decoding="async">
+                    </div>
+                    <div class="live-develop-flash" aria-hidden="true"></div>
+                  </div>
+                  <figcaption class="live-develop-caption"><span>正在形成</span><strong id="live-develop-count">00 / 24</strong></figcaption>
                 </div>
               </figure>
             </div>
