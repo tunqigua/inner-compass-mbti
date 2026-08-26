@@ -16,9 +16,9 @@
   --sentinel: #d4dce0;
   --explorer: #e3d9c7;
   --photo-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
-  --serif: "Songti SC", "STSong", "SimSun", serif;
-  --sans: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  --hand: "Kaiti SC", "STKaiti", "KaiTi", var(--serif);
+  --serif: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --hand: "Ma Shan Zheng", "Noto Serif SC", serif;
 }
 
 *,
@@ -132,11 +132,10 @@ input:focus-visible + label {
 }
 
 .reveal {
-  opacity: 1;
+  opacity: 0;
   transition: opacity 0.28s ease;
 }
 
-.reveal.reveal-pending { opacity: 0; }
 .reveal.is-visible { opacity: 1; }
 
 .content-shell,
@@ -1394,7 +1393,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   padding: 0;
   overflow: visible;
   border: 0;
-  background: var(--paper-deep);
+  background: transparent;
   box-shadow: none;
 }
 
@@ -1436,7 +1435,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   width: min(500px, calc(79.6svh - 183px), calc(100vw - 56px));
   padding: 0;
   overflow: visible;
-  background: var(--paper-deep);
+  background: transparent;
   box-shadow: none;
   transform: rotate(-0.45deg);
 }
@@ -1473,7 +1472,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   aspect-ratio: 1024 / 1287;
   padding: 0;
   overflow: visible;
-  background: var(--paper-deep);
+  background: transparent;
   box-shadow: none;
   transform: none;
 }
@@ -1541,7 +1540,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   width: 100%;
   padding: 0;
   overflow: visible;
-  background: var(--paper-deep);
+  background: transparent;
   box-shadow: none;
   transform: rotate(-0.25deg);
 }
@@ -1592,7 +1591,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   width: min(430px, calc(100vw - 48px));
   padding: 0;
   overflow: visible;
-  background: var(--paper-deep);
+  background: transparent;
   box-shadow: none;
   transform: rotate(0.2deg);
 }
