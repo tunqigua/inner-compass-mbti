@@ -283,14 +283,14 @@ const guideArticles = {
 const LEGACY_STORAGE_KEY = "inner-compass-progress-v1";
 const PROGRESS_STORAGE_KEY = "ic-progress";
 const LAST_RESULT_STORAGE_KEY = "ic-last-result";
-const RESULT_VERSION = 1;
+const RESULT_VERSION = 2;
 const QUIZ_VERSION = "24q-v1";
 const PROGRESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AXIS_ORDER = ["EI", "SN", "TF", "JP"];
 const EXPERIENCE_STORAGE_PREFIXES = ["ic-", "inner-compass-"];
 const QUESTION_ADVANCE_DELAY_MS = 220;
-const DEVELOPING_DURATION_MS = 900;
-const DEVELOPING_HARD_LIMIT_MS = 1200;
+const DEVELOPING_DURATION_MS = 2600;
+const DEVELOPING_HARD_LIMIT_MS = 3200;
 const DEVELOPING_ASSET_WAIT_MS = 150;
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -342,8 +342,6 @@ const answerReview = $("#answer-review");
 const answerReviewList = $("#answer-review-list");
 const liveDevelopPreview = $("#live-develop-preview");
 const liveDevelopWindow = $("#live-develop-window");
-const liveDevelopIconA = $("#live-develop-icon-a");
-const liveDevelopIconB = $("#live-develop-icon-b");
 const liveDevelopCount = $("#live-develop-count");
 const developingStage = $("#developing-stage");
 const developingCopy = $("#developing-copy");
@@ -379,8 +377,6 @@ let developingEndHandler = null;
 let developingToken = 0;
 let developingCommitPending = false;
 let shutterTimer = null;
-let liveDevelopActiveIcon = liveDevelopIconA;
-let liveDevelopIconToken = 0;
 let toastTimer = null;
 let stateFocusTimer = null;
 const dialogReturnFocus = new WeakMap();
@@ -404,20 +400,6 @@ function escapeHtml(value) {
 
 function getPersonalityIcon(code) {
   return `assets/personality-icons/v1/${String(code).toLowerCase()}.webp`;
-}
-
-function getPreviewIconCode(scores) {
-  return personalities
-    .map((type, index) => {
-      const fit = AXIS_ORDER.reduce((total, axis) => {
-        const meta = axisMeta[axis];
-        const direction = type.code.includes(meta.left) ? 1 : -1;
-        const score = scores[axis];
-        return total + (score === 0 ? 0 : direction === Math.sign(score) ? Math.abs(score) : -Math.abs(score));
-      }, 0);
-      return { code: type.code, fit, index };
-    })
-    .sort((a, b) => b.fit - a.fit || a.index - b.index)[0]?.code || "INFJ";
 }
 
 function renderTypes() {
@@ -658,9 +640,11 @@ function getStoredScores(result) {
 }
 
 function isValidCompletedAt(value) {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
-    && Number.isFinite(Date.parse(value));
+  if (typeof value !== "string"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)
+    || !Number.isFinite(Date.parse(value))) return false;
+  const normalized = value.includes(".") ? value : value.replace("Z", ".000Z");
+  return new Date(value).toISOString() === normalized;
 }
 
 function saveLastResult(result) {
@@ -668,6 +652,7 @@ function saveLastResult(result) {
     version: RESULT_VERSION,
     quizVersion: QUIZ_VERSION,
     scores: getStoredScores(result),
+    tieBreaks: result.tieBreaks,
     code: result.code,
     boundaryState: result.boundaryState,
     completedAt: result.completedAt
@@ -684,9 +669,10 @@ function saveLastResult(result) {
 function loadLastResult() {
   try {
     const stored = JSON.parse(localStorage.getItem(LAST_RESULT_STORAGE_KEY));
-    if (!stored || stored.version !== RESULT_VERSION || stored.quizVersion !== QUIZ_VERSION) return null;
+    if (!stored || ![1, RESULT_VERSION].includes(stored.version) || stored.quizVersion !== QUIZ_VERSION) return null;
     if (!isValidCompletedAt(stored.completedAt) || !isValidScores(stored.scores)) return null;
-    const rebuilt = buildResultFromScores(stored.scores, stored.completedAt);
+    if (stored.version === RESULT_VERSION && !isValidTieBreaks(stored.scores, stored.tieBreaks)) return null;
+    const rebuilt = buildResultFromScores(stored.scores, stored.completedAt, stored.version === 1 ? null : stored.tieBreaks);
     if (stored.code !== rebuilt.code || stored.boundaryState !== rebuilt.boundaryState) return null;
     return rebuilt;
   } catch {
@@ -946,19 +932,31 @@ function isValidScores(value) {
     && AXIS_ORDER.every(axis => Number.isInteger(value[axis]) && value[axis] >= -12 && value[axis] <= 12);
 }
 
+function isValidTieBreaks(scores, value) {
+  return value !== null
+    && typeof value === "object"
+    && AXIS_ORDER.every(axis => Number.isInteger(value[axis])
+      && Math.abs(value[axis]) <= 2
+      && (scores[axis] === 0 || value[axis] === 0));
+}
+
 function scorePartialAnswers(answerValues) {
   if (!isValidAnswers(answerValues)) return null;
   const scores = { EI: 0, SN: 0, TF: 0, JP: 0 };
+  const directionCounts = { EI: 0, SN: 0, TF: 0, JP: 0 };
   let answered = 0;
   questions.forEach((question, index) => {
     const value = answerValues[index];
     if (value === null) return;
     answered += 1;
     const meta = axisMeta[question.axis];
-    scores[question.axis] += value * (question.keyedPole === meta.left ? 1 : -1);
+    const direction = question.keyedPole === meta.left ? 1 : -1;
+    scores[question.axis] += value * direction;
+    directionCounts[question.axis] += Math.sign(value) * direction;
   });
   return {
     scores,
+    directionCounts,
     answered,
     total: questions.length,
     complete: answered === questions.length
@@ -1033,22 +1031,6 @@ function applyAbstractDevelopModel(target, model, boundaryState = "open") {
   });
 }
 
-function syncLiveDevelopIcon(code) {
-  const nextIcon = liveDevelopActiveIcon === liveDevelopIconA ? liveDevelopIconB : liveDevelopIconA;
-  if (!nextIcon || !liveDevelopActiveIcon) return;
-  const source = getPersonalityIcon(code);
-  const token = ++liveDevelopIconToken;
-  nextIcon.dataset.iconCode = code;
-  nextIcon.src = source;
-  const swap = () => {
-    if (token !== liveDevelopIconToken) return;
-    liveDevelopActiveIcon.classList.remove("is-active");
-    nextIcon.classList.add("is-active");
-    liveDevelopActiveIcon = nextIcon;
-  };
-  void decodeImage(nextIcon).then(swap);
-}
-
 function getResultDisplayCode(result) {
   return result.boundaryState === "typed" || result.boundaryState === "near"
     ? result.code
@@ -1058,31 +1040,12 @@ function getResultDisplayCode(result) {
 }
 
 function syncLiveDevelopPreview() {
-  const model = getAbstractDevelopModel(answers);
-  if (!model || !liveDevelopPreview || !liveDevelopWindow) return;
-  const previewCode = getPreviewIconCode(model.scores);
-  const previewVisual = model.complete
-    ? getResultPresentation(buildResultFromScores(model.scores)).visual
-    : {
-      color: model.variables["--develop-tone"],
-      ink: "#f8f3e9",
-      tone: "high"
-    };
-  const progress = model.progress;
-  const magnitude = AXIS_ORDER.reduce((sum, axis) => sum + Math.abs(model.scores[axis]), 0) / 48;
-  const iconOpacity = Math.min(0.78, 0.18 + (progress * 0.48) + (magnitude * 0.12));
-  const iconGray = Math.max(0, 0.82 - (progress * 0.82));
-  const iconSaturation = Math.min(1, 0.28 + (progress * 0.72));
-  const iconBlur = Math.max(0, 2.4 - (progress * 2.4));
-
+  if (!liveDevelopPreview || !liveDevelopWindow) return;
+  const answered = answers.filter(value => value !== null).length;
+  // The unexposed photo follows progress only; answers must not reveal a type or its palette.
+  const model = buildAbstractDevelopModel({ EI: 0, SN: 0, TF: 0, JP: 0 }, answered);
   applyAbstractDevelopModel(liveDevelopWindow, model, "open");
-  liveDevelopWindow.style.setProperty("--personality-color", previewVisual.color);
-  liveDevelopWindow.style.setProperty("--personality-ink", previewVisual.ink);
-  liveDevelopWindow.style.setProperty("--live-icon-opacity", iconOpacity.toFixed(3));
-  liveDevelopWindow.style.setProperty("--live-icon-gray", iconGray.toFixed(3));
-  liveDevelopWindow.style.setProperty("--live-icon-saturation", iconSaturation.toFixed(3));
-  liveDevelopWindow.style.setProperty("--live-icon-blur", `${iconBlur.toFixed(2)}px`);
-  syncLiveDevelopIcon(previewCode);
+  liveDevelopWindow.style.setProperty("--fog-lightness", `${(91 - model.progress * 29).toFixed(2)}%`);
   if (liveDevelopCount) liveDevelopCount.textContent = `${String(model.answered).padStart(2, "0")} / ${model.total}`;
   liveDevelopPreview.setAttribute("aria-hidden", "true");
 }
@@ -1095,22 +1058,30 @@ function expandCandidateCodes(axes) {
   }, [""]);
 }
 
-function buildResultFromScores(rawScores, completedAt = new Date().toISOString()) {
+function buildResultFromScores(rawScores, completedAt = new Date().toISOString(), rawTieBreaks = null) {
   if (!isValidScores(rawScores)) throw new TypeError("Invalid result scores");
   const scores = Object.fromEntries(AXIS_ORDER.map(axis => [axis, rawScores[axis]]));
+  const tieBreaks = rawTieBreaks === null
+    ? Object.fromEntries(AXIS_ORDER.map(axis => [axis, 0]))
+    : rawTieBreaks;
+  if (!isValidTieBreaks(scores, tieBreaks)) throw new TypeError("Invalid result tie breaks");
 
   const axes = AXIS_ORDER.map(axis => {
     const meta = axisMeta[axis];
     const score = scores[axis];
-    const isTie = score === 0;
-    const selected = isTie ? null : score > 0 ? meta.left : meta.right;
+    // Total intensity remains primary. Only an exact tie uses the side chosen
+    // more often across non-neutral answers; equal frequency stays unresolved.
+    const resolvedTie = score === 0 && tieBreaks[axis] !== 0;
+    const isTie = score === 0 && !resolvedTie;
+    const selected = isTie ? null : (score || tieBreaks[axis]) > 0 ? meta.left : meta.right;
     return {
       axis,
       score,
       selected,
       letter: selected || "X",
       isTie,
-      strength: getStrength(score),
+      resolvedTie,
+      strength: resolvedTie ? "中点参考" : getStrength(score),
       nearBoundary: !isTie && Math.abs(score) <= 2,
       markerIndex: Math.max(0, Math.min(8, Math.round(((12 - score) / 24) * 8)))
     };
@@ -1136,6 +1107,8 @@ function buildResultFromScores(rawScores, completedAt = new Date().toISOString()
     profile,
     axes,
     scores,
+    tieBreaks: Object.fromEntries(AXIS_ORDER.map(axis => [axis, tieBreaks[axis]])),
+    resolvedTieCount: axes.filter(item => item.resolvedTie).length,
     tieCount,
     nearCount,
     boundaryState,
@@ -1145,9 +1118,12 @@ function buildResultFromScores(rawScores, completedAt = new Date().toISOString()
 }
 
 function calculateResult() {
-  const scores = scoreAnswers(answers);
-  if (!scores) throw new Error(getIncompleteMessage());
-  return buildResultFromScores(scores);
+  const partial = scorePartialAnswers(answers);
+  if (!partial?.complete) throw new Error(getIncompleteMessage());
+  const tieBreaks = Object.fromEntries(AXIS_ORDER.map(axis => [axis,
+    partial.scores[axis] === 0 ? partial.directionCounts[axis] : 0
+  ]));
+  return buildResultFromScores(partial.scores, new Date().toISOString(), tieBreaks);
 }
 
 function getDateStamp(dateValue = new Date()) {
@@ -1162,16 +1138,25 @@ function getDateStamp(dateValue = new Date()) {
 }
 
 function getResultPresentation(result) {
-  const nearAxes = result.axes.filter(item => item.nearBoundary).map(item => item.axis);
+  const nearAxes = result.axes.filter(item => item.nearBoundary && !item.resolvedTie).map(item => item.axis);
+  const resolvedAxes = result.axes.filter(item => item.resolvedTie).map(item => item.axis);
+  const resolutionCopy = resolvedAxes.length
+    ? ` ${resolvedAxes.join("、")} 维度总分持平，按非中立回答中出现次数更多的一侧提供参考方向，仍应视为接近中点。`
+    : "";
   if (result.tieCount === 0 && result.profile) {
-    const contextual = nearAxes.length
+    const contextual = (nearAxes.length
       ? ` ${nearAxes.join("、")} 维度接近中点，先把它看作边界状态，不需要强行归类。`
-      : "";
+      : "") + resolutionCopy;
     return {
       name: result.profile.name,
-      stateLabel: result.boundaryState === "near" ? "本次人格快照 · 有维度接近中点" : "本次人格快照",
+      stateLabel: resolvedAxes.length ? "本次人格快照 · 中点维度提供参考方向" : result.boundaryState === "near" ? "本次人格快照 · 有维度接近中点" : "本次人格快照",
       caption: `${result.code} · ${result.profile.name}`,
       summary: `${result.profile.tagline}${contextual}`,
+      shareSummary: resolvedAxes.length
+        ? `${resolvedAxes.join("、")} 维度总分持平，按回答次数提供参考方向。请将结果视为边界快照。`
+        : nearAxes.length
+          ? `${nearAxes.join("、")} 维度接近中点。${result.profile.tagline}`
+          : result.profile.tagline,
       reading: `${result.profile.reading}${contextual}`,
       iconCode: result.code,
       visual: getPersonalityVisual(result.code),
@@ -1187,7 +1172,7 @@ function getResultPresentation(result) {
       name: "这张快照还没完全显影",
       stateLabel: "本次人格快照 · 一个维度落在中点",
       caption: `${result.code} · 还没完全显影`,
-      summary: "本次快照中有一个维度刚好落在中点，不需要强行选择一端；邻近组合仅供比较。",
+      summary: `本次快照中有一个维度仍停留在中点，暂时保留两种可能；邻近组合仅供比较。${resolutionCopy}`,
       reading: "先比较两个邻近组合，保留符合经验的部分，不必勉强认领。",
       iconCode: null,
       visual: neutralResultVisual,
@@ -1210,7 +1195,7 @@ function getResultPresentation(result) {
     name: "一张多重曝光的快照",
     stateLabel: "本次人格快照 · 多个维度落在中点",
     caption: `${result.code} · 多重曝光`,
-    summary: "多个维度没有形成明确偏向，因此不把任何固定 16 型作为主结果。",
+    summary: `多个维度仍没有形成足够明确的偏向，因此不把任何固定 16 型作为主结果。${resolutionCopy}`,
     reading: "保留符合经验的部分，对不符合的部分继续观察，不必勉强认领。",
     iconCode: null,
     visual: neutralResultVisual,
@@ -1278,7 +1263,7 @@ function populateResult(result) {
     const dots = Array.from({ length: 9 }, (_, index) =>
       `<i class="dimension-dot${index === item.markerIndex ? " is-marker" : ""}"></i>`
     ).join("");
-    const contextNote = item.nearBoundary ? "接近中点，继续观察" : item.isTie ? "本次没有偏向任何一端" : item.strength;
+    const contextNote = item.resolvedTie ? "总分持平 · 次数参考" : item.nearBoundary ? "接近中点，继续观察" : item.isTie ? "本次没有偏向任何一端" : item.strength;
     const leftLetter = item.isTie ? "X" : meta.left;
     const rightLetter = item.isTie ? "" : meta.right;
     return `<div class="dimension-row${item.isTie ? " is-tied" : item.nearBoundary ? " is-near" : ""}" aria-label="${meta.leftName}到${meta.rightName}：${preference}，${contextNote}">
@@ -1329,12 +1314,6 @@ function beginDeveloping() {
   const visualBoundaryState = getVisualBoundaryState(currentResult);
   const showPerson = (visualBoundaryState === "typed" || visualBoundaryState === "near") && Boolean(iconSource);
   const abstractModel = buildAbstractDevelopModel(currentResult.scores, questions.length);
-  const liveModel = getAbstractDevelopModel(answers);
-  const liveProgress = liveModel?.progress ?? 1;
-  const developingStartOpacity = Math.min(0.78, 0.08 + (liveProgress * 0.62));
-  const developingStartGray = Math.max(0, 0.82 - (liveProgress * 0.82));
-  const developingStartSaturation = Math.min(1, 0.28 + (liveProgress * 0.72));
-  const developingStartBlur = `${Math.max(0, 2.4 - (liveProgress * 2.4)).toFixed(2)}px`;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const token = ++developingToken;
 
@@ -1342,10 +1321,6 @@ function beginDeveloping() {
     applyAbstractDevelopModel(developingPhoto, abstractModel, visualBoundaryState);
     developingPhoto.style.setProperty("--personality-color", presentation.visual.color);
     developingPhoto.style.setProperty("--personality-ink", presentation.visual.ink);
-    developingPhoto.style.setProperty("--develop-start-opacity", developingStartOpacity.toFixed(3));
-    developingPhoto.style.setProperty("--develop-start-gray", developingStartGray.toFixed(3));
-    developingPhoto.style.setProperty("--develop-start-saturation", developingStartSaturation.toFixed(3));
-    developingPhoto.style.setProperty("--develop-start-blur", developingStartBlur);
     developingPhoto.dataset.tone = presentation.visual.tone;
     developingPhoto.dataset.resultState = currentResult.boundaryState;
   }
@@ -1484,20 +1459,26 @@ function copyTextFallback(text) {
 
 function getShareHash(result) {
   const scores = AXIS_ORDER.map(axis => result.axes.find(item => item.axis === axis).score).join(",");
+  const tieBreaks = AXIS_ORDER.map(axis => result.tieBreaks[axis]).join(",");
   const date = result.completedAt.slice(0, 10);
-  return `#result/v${RESULT_VERSION}/${scores}/${result.code}/${result.boundaryState}/${date}`;
+  return `#result/v${RESULT_VERSION}/${scores}/${tieBreaks}/${result.code}/${result.boundaryState}/${date}`;
 }
 
 function parseShareHash(hash = window.location.hash) {
-  const match = /^#result\/v1\/(-?\d+,-?\d+,-?\d+,-?\d+)\/([EIX][SNX][TFX][JPX])\/(typed|near|one-tie|mixed|open)\/(\d{4}-\d{2}-\d{2})$/.exec(hash);
-  if (!match) return null;
-  const scoreValues = match[1].split(",").map(Number);
+  const legacy = /^#result\/v1\/(-?\d+,-?\d+,-?\d+,-?\d+)\/([EIX][SNX][TFX][JPX])\/(typed|near|one-tie|mixed|open)\/(\d{4}-\d{2}-\d{2})$/.exec(hash);
+  const current = /^#result\/v2\/(-?\d+,-?\d+,-?\d+,-?\d+)\/(-?\d+,-?\d+,-?\d+,-?\d+)\/([EIX][SNX][TFX][JPX])\/(typed|near|one-tie|mixed|open)\/(\d{4}-\d{2}-\d{2})$/.exec(hash);
+  if (!legacy && !current) return null;
+  const [, scoreToken, tieToken, code, state, date] = current || [null, legacy[1], null, legacy[2], legacy[3], legacy[4]];
+  const scoreValues = scoreToken.split(",").map(Number);
   const scores = Object.fromEntries(AXIS_ORDER.map((axis, index) => [axis, scoreValues[index]]));
-  const completedAt = `${match[4]}T00:00:00.000Z`;
-  if (!isValidScores(scores) || !isValidCompletedAt(completedAt) || getDateIso(completedAt) !== match[4]) return null;
+  const tieValues = tieToken?.split(",").map(Number);
+  const tieBreaks = tieValues ? Object.fromEntries(AXIS_ORDER.map((axis, index) => [axis, tieValues[index]])) : null;
+  const completedAt = `${date}T00:00:00.000Z`;
+  if (!isValidScores(scores) || !isValidCompletedAt(completedAt) || getDateIso(completedAt) !== date) return null;
+  if (current && !isValidTieBreaks(scores, tieBreaks)) return null;
   try {
-    const result = buildResultFromScores(scores, completedAt);
-    if (result.code !== match[2] || result.boundaryState !== match[3]) return null;
+    const result = buildResultFromScores(scores, completedAt, tieBreaks);
+    if (result.code !== code || result.boundaryState !== state) return null;
     return result;
   } catch {
     return null;
@@ -1568,6 +1549,9 @@ async function createShareImageBlob(result) {
   canvas.height = 1350;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("当前浏览器不支持分享图片");
+  const pageFonts = getComputedStyle(document.documentElement);
+  const serifFont = pageFonts.getPropertyValue("--serif").trim() || "serif";
+  const sansFont = pageFonts.getPropertyValue("--sans").trim() || "sans-serif";
 
   context.fillStyle = "#d8d0c1";
   context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1668,9 +1652,9 @@ async function createShareImageBlob(result) {
 
   context.fillStyle = visual.ink;
   context.textAlign = icon ? "left" : "center";
-  context.font = '700 96px "Noto Serif SC", serif';
+  context.font = `700 96px ${serifFont}`;
   context.fillText(getResultDisplayCode(result), icon ? 184 : 540, 790);
-  context.font = '700 46px "Noto Serif SC", serif';
+  context.font = `700 46px ${serifFont}`;
   if (icon) {
     drawWrappedText(context, presentation.name, 184, 858, 700, 56, 2);
   } else {
@@ -1679,13 +1663,13 @@ async function createShareImageBlob(result) {
 
   context.fillStyle = "#22211e";
   context.textAlign = "left";
-  context.font = '400 30px "Noto Sans SC", sans-serif';
-  drawWrappedText(context, presentation.summary, 132, 1008, 816, 48, 2);
+  context.font = `400 30px ${sansFont}`;
+  drawWrappedText(context, presentation.shareSummary || presentation.summary, 132, 1008, 816, 48, 2);
 
   context.strokeStyle = "#8b867e";
   context.fillStyle = "#22211e";
   context.lineWidth = 3;
-  context.font = '700 22px "Noto Sans SC", sans-serif';
+  context.font = `700 22px ${sansFont}`;
   result.axes.forEach((axis, index) => {
     const meta = axisMeta[axis.axis];
     const x = 138 + index * 204;
@@ -1716,11 +1700,11 @@ async function createShareImageBlob(result) {
 
   context.fillStyle = "#9c3a2e";
   context.textAlign = "left";
-  context.font = '700 26px "Noto Sans SC", sans-serif';
+  context.font = `700 26px ${sansFont}`;
   context.fillText("向内生长 · 人格拍立得", 132, 1190);
   context.fillStyle = "#6a665f";
   context.textAlign = "right";
-  context.font = '400 24px "Noto Sans SC", sans-serif';
+  context.font = `400 24px ${sansFont}`;
   context.fillText(getDateStamp(result.completedAt), 948, 1190);
   context.fillText("tunqigua.github.io/inner-compass-mbti/", 948, 1240);
   return canvasToBlob(canvas);
@@ -2143,3 +2127,4 @@ function init() {
 }
 
 init();
+

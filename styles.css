@@ -16,9 +16,9 @@
   --sentinel: #d4dce0;
   --explorer: #e3d9c7;
   --photo-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
-  --serif: "Noto Serif SC", "Songti SC", "STSong", serif;
-  --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --hand: "Ma Shan Zheng", "Noto Serif SC", serif;
+  --serif: "Songti SC", "STSong", "SimSun", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --hand: "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", serif;
 }
 
 *,
@@ -911,34 +911,24 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   height: 100%;
 }
 
-.live-develop-color {
+/* Unexposed film stays opaque and neutral, independent of every answer. */
+.live-develop-window::after,
+.developing-photo::after {
+  content: "";
   position: absolute;
-  z-index: 6;
-  inset: 0;
-  overflow: hidden;
-  background: var(--personality-color, transparent);
-  opacity: 0.68;
-  mix-blend-mode: multiply;
-  transition: background-color 0.42s ease, opacity 0.32s ease;
+  z-index: 4;
+  inset: -5%;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 18% 30%, rgba(250, 247, 239, 0.44), transparent 62%),
+    radial-gradient(ellipse at 82% 75%, rgba(87, 83, 76, 0.23), transparent 64%),
+    radial-gradient(ellipse at 65% 15%, rgba(250, 247, 239, 0.26), transparent 56%),
+    hsl(36, 12%, var(--fog-lightness, 62%));
+  opacity: 1;
 }
 
-.live-develop-icon {
-  position: absolute;
-  right: -6%;
-  bottom: -3%;
-  width: 82%;
-  height: 106%;
-  object-fit: contain;
-  object-position: right bottom;
-  opacity: 0;
-  filter: grayscale(1) saturate(0.25) blur(2.4px);
-  transition: opacity 0.28s ease, filter 0.45s ease;
-}
-
-.live-develop-icon.is-active {
-  opacity: var(--live-icon-opacity, 0.08);
-  filter: grayscale(var(--live-icon-gray, 1)) saturate(var(--live-icon-saturation, 0.25)) blur(var(--live-icon-blur, 2.4px));
-}
+.live-develop-window::after { transition: background-color 0.7s ease; }
+.live-develop-window > .abstract-exposure { visibility: hidden; }
 
 .live-develop-flash {
   position: absolute;
@@ -1624,9 +1614,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   display: block;
   background: var(--personality-color, var(--paper-deep));
   clip-path: inset(0 0 0 0);
-  opacity: var(--develop-start-opacity, 0);
-  filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
-  transition: opacity 0.3s ease, filter 0.45s ease;
+  opacity: 1;
 }
 
 .developing-color .developing-icon {
@@ -1637,8 +1625,7 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   height: 100%;
   object-fit: contain;
   object-position: right bottom;
-  opacity: var(--develop-start-opacity, 0);
-  filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
+  opacity: 1;
 }
 
 .developing-color:has(.developing-icon[hidden]) { background: transparent; }
@@ -1654,9 +1641,33 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 }
 
 .developing-stage.is-developing .developing-polaroid { animation: paper-feed 0.9s cubic-bezier(0.2, 0.72, 0.2, 1) both; }
-.developing-stage.is-developing .developing-color { animation: develop-color-scan 0.9s ease both; }
-.developing-stage.is-developing .developing-icon { animation: subject-emerge 0.9s ease both; }
-.developing-stage.is-developing .developing-light-leak { animation: darkroom-light 0.9s ease both; }
+.developing-stage.is-developing .developing-color { animation: develop-color-scan 2.6s linear both; }
+.developing-stage.is-developing .developing-photo::after { animation: fog-clear 2.6s ease both; }
+.developing-stage.is-developing .developing-light-leak { animation: darkroom-light 2.6s ease both; }
+
+.developing-light-burst {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
+  --burst-distance: clamp(72px, 22vw, 155px);
+}
+
+.developing-light-burst i {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fffdf4;
+  box-shadow: 0 0 7px 2px rgba(255, 250, 229, 0.85);
+  opacity: 0;
+}
+
+.developing-stage.is-developing .developing-light-burst i {
+  animation: light-point-burst 1.25s cubic-bezier(0.12, 0.65, 0.25, 1) calc(0.55s + var(--burst-delay, 0s)) both;
+}
 
 .developing-polaroid .developing-border,
 .result-polaroid .result-border {
@@ -1751,26 +1762,29 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 }
 
 @keyframes develop-color-scan {
-  0%, 12% {
-    clip-path: inset(0 0 0 0);
-    opacity: var(--develop-start-opacity, 0);
-    filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
-  }
-  48% { opacity: 0.86; filter: grayscale(0.16) saturate(0.86) blur(0.3px); }
-  82%, 100% { opacity: 1; filter: grayscale(0) saturate(1) blur(0); }
+  from, to { opacity: 1; }
 }
 
-@keyframes subject-emerge {
-  0%, 12% {
-    opacity: var(--develop-start-opacity, 0);
-    filter: grayscale(var(--develop-start-gray, 1)) saturate(var(--develop-start-saturation, 0.25)) blur(var(--develop-start-blur, 2.4px));
+@keyframes fog-clear {
+  0%, 24% { opacity: 1; filter: blur(0); transform: scale(1); }
+  48% { opacity: 0.86; }
+  76% { opacity: 0.3; }
+  100% { opacity: 0; filter: blur(18px); transform: scale(1.16); }
+}
+
+@keyframes light-point-burst {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.25); }
+  12% { opacity: 0.95; }
+  68% { opacity: 0.65; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--burst-distance) * var(--burst-x)), calc(var(--burst-distance) * var(--burst-y))) scale(0.5);
   }
-  72%, 100% { opacity: 1; filter: grayscale(0) saturate(1) blur(0); }
 }
 
 @keyframes darkroom-light {
   0%, 22%, 100% { opacity: 0; }
-  48% { opacity: 0.42; }
+  32% { opacity: 0.2; }
 }
 
 @keyframes live-exposure-flash {
@@ -1911,9 +1925,8 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
 
 @media (prefers-reduced-motion: reduce) {
   .abstract-exposure > span { transition: none; }
-  .live-develop-icon,
   .live-develop-window,
-  .live-develop-color { transition: none; }
+  .live-develop-window::after { transition: none; }
   .live-develop-preview.is-exposing .live-develop-flash,
   .result-stage.is-arriving .result-polaroid,
   .result-stage.is-arriving .result-overview,
@@ -1922,10 +1935,15 @@ dialog::backdrop { background: rgba(10, 10, 9, 0.76); }
   .developing-stage.is-developing .developing-polaroid,
   .developing-stage.is-developing .developing-color,
   .developing-stage.is-developing .developing-icon,
+  .developing-stage.is-developing .developing-photo::after,
+  .developing-stage.is-developing .developing-light-burst i,
   .developing-stage.is-developing .developing-light-leak { animation: none !important; }
   .developing-color { clip-path: inset(0 0 0 0); opacity: 1; }
   .developing-color,
   .developing-color .developing-icon { filter: none; }
   .developing-icon { opacity: 1; }
   .developing-light-leak { display: none; }
+  .developing-photo::after,
+  .developing-light-burst { display: none; }
 }
+
