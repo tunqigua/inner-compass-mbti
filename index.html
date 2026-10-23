@@ -22,8 +22,8 @@
   <title>向内生长｜从白色到彩色</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="preload" as="image" href="assets/frames/native-polaroid-frame-v1.webp" fetchpriority="high">
-  <link rel="stylesheet" href="styles.css?v=20261023-stable-quiz">
-  <script defer src="app.js?v=20261023-stable-quiz"></script>
+  <link rel="stylesheet" href="styles.css?v=20261023-quiz2">
+  <script defer src="app.js?v=20261023-quiz2"></script>
   <script type="application/ld+json">
     {"@context":"https://schema.org","@type":"WebSite","name":"向内生长｜从白色到彩色","url":"https://tunqigua.github.io/inner-compass-mbti/","description":"24 个生活片段，等一张人格拍立得慢慢显影，从白色到彩色，看见你的四维人格偏好。","inLanguage":"zh-CN"}
   </script>
@@ -253,6 +253,16 @@
 
   <dialog class="guide-dialog" id="guide-dialog" aria-labelledby="guide-dialog-title"><button class="dialog-close" type="button" data-close-guide aria-label="关闭文章">关闭</button><article id="guide-dialog-content"></article></dialog>
   <dialog class="share-dialog" id="share-dialog" aria-labelledby="share-dialog-title"><button class="dialog-close" type="button" data-close-share aria-label="关闭分享图片">关闭</button><h2 id="share-dialog-title">保存或寄出这张照片</h2><p>手机可长按图片保存；也可以复制链接，寄给想寄的人。</p><img id="share-preview" alt="人格测试拍立得结果分享图"><div class="share-actions"><a class="btn-primary" id="download-result" href="#" download="向内生长-人格拍立得.png">保存照片</a><button class="btn-secondary" id="copy-result-link" type="button">复制链接</button></div></dialog>
+  <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <div class="dialog-body">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-message"></p>
+      <div class="confirm-actions">
+        <button class="btn-secondary" type="button" id="confirm-cancel">取消</button>
+        <button class="btn-primary" type="button" id="confirm-ok">确定</button>
+      </div>
+    </div>
+  </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript><div class="noscript">这个体验需要 JavaScript 才能完成拍照和显影。请启用后刷新。</div></noscript>
 </body>

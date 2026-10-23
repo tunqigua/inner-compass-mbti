@@ -366,6 +366,11 @@ const sharePreview = $("#share-preview");
 const downloadResult = $("#download-result");
 const copyResultLink = $("#copy-result-link");
 const toast = $("#toast");
+const confirmDialog = $("#confirm-dialog");
+const confirmTitle = $("#confirm-title");
+const confirmMessage = $("#confirm-message");
+const confirmOk = $("#confirm-ok");
+const confirmCancel = $("#confirm-cancel");
 
 let currentQuestion = 0;
 let answers = Array(questions.length).fill(null);
@@ -721,11 +726,62 @@ function clearExperienceStorage() {
   updateHeroProgressEntry();
 }
 
+let confirmResolve = null;
+let confirmReturnFocus = null;
+
+// In-page replacement for window.confirm: same blocking semantics, but styled,
+// focus-managed, and free of the browser's "don't ask again" trap.
+function askConfirm({ title, message, confirmLabel = "确定", cancelLabel = "取消" }) {
+  if (!confirmDialog || typeof confirmDialog.showModal !== "function") {
+    return Promise.resolve(typeof window.confirm === "function" && window.confirm(`${title}\n\n${message}`));
+  }
+  if (confirmResolve) settleConfirm(false);
+  confirmTitle.textContent = title;
+  confirmMessage.textContent = message;
+  confirmOk.textContent = confirmLabel;
+  confirmCancel.textContent = cancelLabel;
+  confirmReturnFocus = document.activeElement && typeof document.activeElement.focus === "function" ? document.activeElement : null;
+  confirmDialog.showModal();
+  confirmCancel.focus({ preventScroll: true });
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+function settleConfirm(confirmed) {
+  if (!confirmResolve) return;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (confirmDialog.open) confirmDialog.close();
+  const target = confirmReturnFocus;
+  confirmReturnFocus = null;
+  resolve(confirmed);
+  if (target?.focus) target.focus({ preventScroll: true });
+}
+
+function setupConfirmDialog() {
+  if (!confirmDialog) return;
+  confirmOk.addEventListener("click", () => settleConfirm(true));
+  confirmCancel.addEventListener("click", () => settleConfirm(false));
+  confirmDialog.addEventListener("cancel", event => {
+    event.preventDefault();
+    settleConfirm(false);
+  });
+  confirmDialog.addEventListener("close", () => settleConfirm(false));
+  confirmDialog.addEventListener("click", event => {
+    if (event.target === confirmDialog) settleConfirm(false);
+  });
+}
+
 function requestClearLocalData() {
-  const confirmed = window.confirm("清除后，当前浏览器中的未完成进度和上次结果都无法恢复。确定清除吗？");
-  if (!confirmed) return;
-  clearExperienceStorage();
-  showToast("未完成进度和上次结果已清除。");
+  askConfirm({
+    title: "清除本机数据？",
+    message: "清除后，当前浏览器中的未完成进度和上次结果都无法恢复。",
+    confirmLabel: "清除",
+    cancelLabel: "保留"
+  }).then(confirmed => {
+    if (!confirmed) return;
+    clearExperienceStorage();
+    showToast("未完成进度和上次结果已清除。");
+  });
 }
 
 function cancelAdvance() {
@@ -1435,8 +1491,18 @@ function showResult(result = calculateResult(), { persist = true, clearDraft = t
 }
 
 function retryTest() {
-  const confirmed = window.confirm("再测一次会开始一份新的快照，上次结果仍会保留。确定继续吗？");
-  if (!confirmed) return;
+  askConfirm({
+    title: "再测一次？",
+    message: "会开始一份新的快照，上次结果仍会保留。",
+    confirmLabel: "开始新测试",
+    cancelLabel: "再看一眼"
+  }).then(confirmed => {
+    if (!confirmed) return;
+    startRetryTest();
+  });
+}
+
+function startRetryTest() {
   cancelAdvance();
   cancelDeveloping();
   answers = Array(questions.length).fill(null);
@@ -1459,8 +1525,18 @@ function restartSavedProgress(trigger = null) {
     showTest(trigger);
     return;
   }
-  const confirmed = window.confirm("清除未完成进度并从第 1 题重新开始吗？上次结果仍会保留。");
-  if (!confirmed) return;
+  askConfirm({
+    title: "从第 1 题重新开始？",
+    message: "会清除未完成的进度，上次结果仍会保留。",
+    confirmLabel: "重新开始",
+    cancelLabel: "继续上次"
+  }).then(confirmed => {
+    if (!confirmed) return;
+    restartSavedProgressNow(trigger);
+  });
+}
+
+function restartSavedProgressNow(trigger) {
   cancelAdvance();
   cancelDeveloping();
   answers = Array(questions.length).fill(null);
@@ -1870,9 +1946,14 @@ function openLastResult(trigger = null) {
   openResultView(result, trigger, { source: "stored" });
 }
 
-function requestTestExit({ updateRoute = true, returnToTypes = false } = {}) {
+async function requestTestExit({ updateRoute = true, returnToTypes = false } = {}) {
   if (experienceState === "question" && answers.some(value => value !== null)) {
-    const confirmed = window.confirm("照片还没完成，确定暂时退出吗？进度会保存在当前浏览器，下次可以继续。");
+    const confirmed = await askConfirm({
+      title: "暂时退出测试？",
+      message: "照片还没完成。进度会保存在当前浏览器，下次可以继续。",
+      confirmLabel: "退出",
+      cancelLabel: "继续答题"
+    });
     if (!confirmed) return false;
   }
   closeTest({ updateRoute, returnToTypes });
@@ -2066,11 +2147,18 @@ function handleRouteChange({ fromPop = false } = {}) {
 
   if (!route) {
     if (testDialog.open && experienceState === "question" && answers.some(value => value !== null) && fromPop) {
-      const confirmed = window.confirm("照片还没完成，确定暂时退出吗？进度会保存在当前浏览器，下次可以继续。");
-      if (!confirmed) {
-        history.pushState({ icOverlay: "test", returnHash: window.location.hash || "#home" }, "", "#test");
-        return;
-      }
+      // Restore #test before asking: if the answer is "keep going", the URL and
+      // the open dialog already agree, and cancelling cannot strand the user.
+      history.pushState({ icOverlay: "test", returnHash: currentRouteReturn || "#home" }, "", "#test");
+      askConfirm({
+        title: "暂时退出测试？",
+        message: "照片还没完成。进度会保存在当前浏览器，下次可以继续。",
+        confirmLabel: "退出",
+        cancelLabel: "继续答题"
+      }).then(confirmed => {
+        if (confirmed) closeTest({ updateRoute: true });
+      });
+      return;
     }
     routeSyncing = true;
     closeDialogsExcept();
@@ -2138,6 +2226,7 @@ function setupHistory() {
 }
 
 function init() {
+  setupConfirmDialog();
   migrateStorageKeys();
   migrateProgress();
   updateHeroProgressEntry();

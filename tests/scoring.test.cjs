@@ -9,9 +9,10 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8").replace(/\ninit\(\);\s*$/, "\n");
 const LAST_RESULT = "inner-compass-mbti:last-result";
 const storage = new Map();
-const node = { querySelector: () => node };
+const node = { querySelector: () => node, focus() {}, addEventListener() {} };
+const dialogStub = { open: false, showModal() { this.open = true; }, close() { this.open = false; }, addEventListener() {} };
 const context = vm.createContext({
-  document: { querySelector: () => node },
+  document: { querySelector: selector => selector === "#confirm-dialog" ? dialogStub : node, activeElement: node },
   localStorage: {
     getItem: key => storage.get(key) ?? null,
     setItem: (key, value) => storage.set(key, value),
@@ -27,6 +28,7 @@ const api = vm.runInContext(`({
   questions, axisMeta, AXIS_ORDER, personalities,
   scorePartialAnswers, scoreAnswers, buildResultFromScores,
   calculateResult, getResultPresentation, getShareHash, parseShareHash, getResultDisplayCode, getDateStamp, getFlatAnswerCount, migrateStorageKeys, PROGRESS_STORAGE_KEY, LAST_RESULT_STORAGE_KEY,
+  askConfirm, settleConfirm,
   saveLastResult, loadLastResult, isValidCompletedAt,
   setAnswers(value) { answers = value; }, get QUIZ_VERSION() { return QUIZ_VERSION; }
 })`, context);
@@ -266,4 +268,18 @@ test("results from an older question set are not reused", () => {
   const stored = JSON.parse(storage.get(LAST_RESULT));
   storage.set(LAST_RESULT, JSON.stringify({ ...stored, quizVersion: "24q-v1" }));
   assert.equal(api.loadLastResult(), null);
+});
+
+test("the in-page confirm blocks, defaults to cancel, and resolves once", async () => {
+  let settled = null;
+  const pending = api.askConfirm({ title: "清除本机数据？", message: "无法恢复。", confirmLabel: "清除", cancelLabel: "保留" });
+  pending.then(value => { settled = value; });
+  assert.equal(settled, null, "nothing resolves before the user answers");
+  api.settleConfirm(true);
+  assert.equal(await pending, true);
+  assert.equal(settled, true);
+  const cancelled = api.askConfirm({ title: "再测一次？", message: "上次结果仍会保留。" });
+  api.settleConfirm(false);
+  assert.equal(await cancelled, false);
+  api.settleConfirm(false);
 });
