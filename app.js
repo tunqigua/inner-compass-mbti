@@ -203,10 +203,10 @@ const personalities = [
 ];
 
 const questions = [
-  { axis: "EI", keyedPole: "E", text: "聚会散场后，我通常还有精力继续聊天或参加下一场活动。" },
-  { axis: "SN", keyedPole: "S", text: "学一道新菜时，清楚的步骤和用量比「凭感觉」更让我安心。" },
+  { axis: "EI", keyedPole: "E", text: "聚会散场后，我通常还有精力继续下一场。" },
+  { axis: "SN", keyedPole: "S", text: "学一道新菜时，我会先看清步骤和用量。" },
   { axis: "TF", keyedPole: "T", text: "朋友吐槽工作时，我通常先梳理事实和责任，再回应情绪。" },
-  { axis: "JP", keyedPole: "J", text: "出门旅行前，我喜欢提前收好行李并确认安排。" },
+  { axis: "JP", keyedPole: "J", text: "出门旅行前，我会提前收好行李。" },
   { axis: "EI", keyedPole: "I", text: "遇到卡住的问题，我更需要先独自想清楚，再找人讨论。" },
   { axis: "SN", keyedPole: "N", text: "看完电影后，我常继续琢磨它没有明说的含义。" },
   { axis: "TF", keyedPole: "F", text: "会影响他人的决定里，我会优先考虑每个人的处境和感受。" },
@@ -214,15 +214,15 @@ const questions = [
   { axis: "EI", keyedPole: "E", text: "小组讨论中，我常在说出来的过程中把想法理清。" },
   { axis: "SN", keyedPole: "S", text: "听别人讲一件事时，我会先确认具体发生了什么。" },
   { axis: "TF", keyedPole: "T", text: "出现分歧时，即使气氛紧张，我也会先检验双方的逻辑。" },
-  { axis: "JP", keyedPole: "J", text: "开始工作前，我习惯先排好优先级和步骤。" },
+  { axis: "JP", keyedPole: "J", text: "开始工作前，我会先排好优先级。" },
   { axis: "EI", keyedPole: "I", text: "连续几天社交后，我需要独处一段时间恢复精力。" },
   { axis: "SN", keyedPole: "N", text: "接手新项目时，我会先形成整体图景，再补充细节。" },
   { axis: "TF", keyedPole: "F", text: "朋友难过时，我通常先陪伴和回应感受，再讨论办法。" },
   { axis: "JP", keyedPole: "P", text: "计划进行中出现更好的想法时，我愿意立即调整方向。" },
   { axis: "EI", keyedPole: "E", text: "进入新环境时，我通常会主动和周围的人搭话。" },
   { axis: "SN", keyedPole: "S", text: "回忆一次旅行时，我先想起的通常是具体画面和发生过的细节。" },
-  { axis: "TF", keyedPole: "T", text: "如果规则一致且有效，即使有人暂时不喜欢，我仍会考虑坚持它。" },
-  { axis: "JP", keyedPole: "J", text: "对重要的事，我更喜欢提前完成并留出余量。" },
+  { axis: "TF", keyedPole: "T", text: "即使有人暂时不喜欢，只要规则合理，我也会坚持。" },
+  { axis: "JP", keyedPole: "J", text: "对重要的事，我会提前完成。" },
   { axis: "EI", keyedPole: "I", text: "即使和最好的朋友相处愉快，回家后我仍需要一个人安静一会儿。" },
   { axis: "SN", keyedPole: "N", text: "比起一件事现在的样子，它未来可能变成什么更容易吸引我。" },
   { axis: "TF", keyedPole: "F", text: "两个人发生冲突时，我会先理解各自的委屈和处境。" },
@@ -280,14 +280,16 @@ const guideArticles = {
   }
 };
 
+const STORE_NAMESPACE = "inner-compass-mbti:";
 const LEGACY_STORAGE_KEY = "inner-compass-progress-v1";
-const PROGRESS_STORAGE_KEY = "ic-progress";
-const LAST_RESULT_STORAGE_KEY = "ic-last-result";
+const PROGRESS_STORAGE_KEY = STORE_NAMESPACE + "progress";
+const LAST_RESULT_STORAGE_KEY = STORE_NAMESPACE + "last-result";
+const LEGACY_STORAGE_KEYS = ["ic-progress", "ic-last-result", "inner-compass-progress-v1"];
 const RESULT_VERSION = 2;
-const QUIZ_VERSION = "24q-v1";
+const QUIZ_VERSION = "24q-v2";
 const PROGRESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const AXIS_ORDER = ["EI", "SN", "TF", "JP"];
-const EXPERIENCE_STORAGE_PREFIXES = ["ic-", "inner-compass-"];
+const RESULT_TIME_ZONE = "Asia/Shanghai";
 const QUESTION_ADVANCE_DELAY_MS = 220;
 const DEVELOPING_DURATION_MS = 2600;
 const DEVELOPING_HARD_LIMIT_MS = 3200;
@@ -324,7 +326,6 @@ const resultStage = $("#result-stage");
 const questionTitle = $("#question-title");
 const questionCount = $("#question-count");
 const testProgressMeta = $("#test-progress-meta");
-const questionCaption = $("#question-caption");
 const answerScale = $("#answer-scale");
 const previousQuestion = $("#previous-question");
 const progressTrack = $("#progress-track");
@@ -552,6 +553,24 @@ function isFreshProgressTimestamp(value, now = Date.now()) {
     && now - value <= PROGRESS_TTL_MS;
 }
 
+// Move the old unprefixed keys into the app namespace once, then drop them.
+function migrateStorageKeys() {
+  try {
+    if (!localStorage.getItem(PROGRESS_STORAGE_KEY)) {
+      const raw = localStorage.getItem("ic-progress");
+      if (raw) localStorage.setItem(PROGRESS_STORAGE_KEY, raw);
+    }
+    if (!localStorage.getItem(LAST_RESULT_STORAGE_KEY)) {
+      const raw = localStorage.getItem("ic-last-result");
+      if (raw) localStorage.setItem(LAST_RESULT_STORAGE_KEY, raw);
+    }
+    if (localStorage.getItem(PROGRESS_STORAGE_KEY)) localStorage.removeItem("ic-progress");
+    if (localStorage.getItem(LAST_RESULT_STORAGE_KEY)) localStorage.removeItem("ic-last-result");
+  } catch {
+    // A private browsing context may make storage unavailable.
+  }
+}
+
 function migrateProgress() {
   try {
     if (localStorage.getItem(PROGRESS_STORAGE_KEY)) return;
@@ -687,8 +706,9 @@ function updateLastResultEntry() {
 
 function clearExperienceStorage() {
   try {
-    Object.keys(localStorage)
-      .filter(key => EXPERIENCE_STORAGE_PREFIXES.some(prefix => key.startsWith(prefix)))
+    // Remove only this app's keys: tunqigua.github.io shares one origin with
+    // the other sites, so prefix sweeps could delete their data.
+    [PROGRESS_STORAGE_KEY, LAST_RESULT_STORAGE_KEY, ...LEGACY_STORAGE_KEYS]
       .forEach(key => localStorage.removeItem(key));
   } catch {
     // Keep the controls usable if storage is unavailable.
@@ -847,7 +867,6 @@ function syncQuestionProgress() {
   const answeredCount = answers.filter(value => value !== null).length;
   const label = `${String(currentQuestion + 1).padStart(2, "0")} / ${questions.length}`;
   questionCount.textContent = label;
-  if (questionCaption) questionCaption.textContent = label;
   progressTrack.setAttribute("aria-valuenow", String(answeredCount));
   progressBar.style.width = `${(answeredCount / questions.length) * 100}%`;
 }
@@ -1032,11 +1051,8 @@ function applyAbstractDevelopModel(target, model, boundaryState = "open") {
 }
 
 function getResultDisplayCode(result) {
-  return result.boundaryState === "typed" || result.boundaryState === "near"
-    ? result.code
-    : result.boundaryState === "one-tie"
-      ? "X"
-      : "OPEN";
+  // Keep the letters that are already decided: "XSTJ" carries more than "X".
+  return result.code;
 }
 
 function syncLiveDevelopPreview() {
@@ -1128,13 +1144,21 @@ function calculateResult() {
 
 function getDateStamp(dateValue = new Date()) {
   const date = dateValue instanceof Date ? dateValue : new Date(dateValue);
-  const parts = new Intl.DateTimeFormat("zh-CN", {
+  const safe = Number.isFinite(date.getTime()) ? date : new Date();
+  // One fixed zone for the stamp and the share link: a date that changes with
+  // the reader's timezone would make the same snapshot look a day apart.
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: RESULT_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).formatToParts(Number.isFinite(date.getTime()) ? date : new Date());
+  }).formatToParts(safe);
   const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
   return `${values.year}.${values.month}.${values.day}`;
+}
+
+function getResultDate(value) {
+  return getDateStamp(value).replace(/\./g, "-");
 }
 
 function getResultPresentation(result) {
@@ -1203,6 +1227,13 @@ function getResultPresentation(result) {
   };
 }
 
+function getFlatAnswerCount() {
+  if (answers.some(value => value === null)) return 0;
+  const counts = new Map();
+  answers.forEach(value => counts.set(value, (counts.get(value) || 0) + 1));
+  return Math.max(...counts.values());
+}
+
 function populateResult(result) {
   const presentation = getResultPresentation(result);
   const visual = presentation.visual;
@@ -1223,7 +1254,10 @@ function populateResult(result) {
     resultIcon.hidden = true;
   }
   resultState.textContent = presentation.stateLabel;
-  $("#result-summary").textContent = presentation.summary;
+  const flatCount = getFlatAnswerCount();
+  $("#result-summary").textContent = flatCount >= 22
+    ? `这次 24 题里有 ${flatCount} 题选了同一档，结果更容易反映作答习惯，建议隔一段时间再测。${presentation.summary}`
+    : presentation.summary;
   $("#result-reading-copy").textContent = presentation.reading;
   resultColumns.hidden = result.tieCount > 0;
   $("#result-strengths").innerHTML = result.profile
@@ -1460,7 +1494,7 @@ function copyTextFallback(text) {
 function getShareHash(result) {
   const scores = AXIS_ORDER.map(axis => result.axes.find(item => item.axis === axis).score).join(",");
   const tieBreaks = AXIS_ORDER.map(axis => result.tieBreaks[axis]).join(",");
-  const date = result.completedAt.slice(0, 10);
+  const date = getResultDate(result.completedAt);
   return `#result/v${RESULT_VERSION}/${scores}/${tieBreaks}/${result.code}/${result.boundaryState}/${date}`;
 }
 
@@ -1473,8 +1507,8 @@ function parseShareHash(hash = window.location.hash) {
   const scores = Object.fromEntries(AXIS_ORDER.map((axis, index) => [axis, scoreValues[index]]));
   const tieValues = tieToken?.split(",").map(Number);
   const tieBreaks = tieValues ? Object.fromEntries(AXIS_ORDER.map((axis, index) => [axis, tieValues[index]])) : null;
-  const completedAt = `${date}T00:00:00.000Z`;
-  if (!isValidScores(scores) || !isValidCompletedAt(completedAt) || getDateIso(completedAt) !== date) return null;
+  const completedAt = new Date(`${date}T12:00:00+08:00`).toISOString();
+  if (!isValidScores(scores) || !isValidCompletedAt(completedAt) || getResultDate(completedAt) !== date) return null;
   if (current && !isValidTieBreaks(scores, tieBreaks)) return null;
   try {
     const result = buildResultFromScores(scores, completedAt, tieBreaks);
@@ -1483,11 +1517,6 @@ function parseShareHash(hash = window.location.hash) {
   } catch {
     return null;
   }
-}
-
-function getDateIso(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
 }
 
 function getShareUrl(result) {
@@ -2109,13 +2138,10 @@ function setupHistory() {
 }
 
 function init() {
+  migrateStorageKeys();
   migrateProgress();
   updateHeroProgressEntry();
   renderTypes();
-  $$(".type-card .native-frame", typesGrid).forEach(image => {
-    image.loading = "eager";
-    image.decoding = "sync";
-  });
   setupTypeInteractions();
   setupTest();
   setupShare();

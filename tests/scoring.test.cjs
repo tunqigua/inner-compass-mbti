@@ -7,6 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8").replace(/\ninit\(\);\s*$/, "\n");
+const LAST_RESULT = "inner-compass-mbti:last-result";
 const storage = new Map();
 const node = { querySelector: () => node };
 const context = vm.createContext({
@@ -25,9 +26,9 @@ vm.runInContext(source, context);
 const api = vm.runInContext(`({
   questions, axisMeta, AXIS_ORDER, personalities,
   scorePartialAnswers, scoreAnswers, buildResultFromScores,
-  calculateResult, getResultPresentation, getShareHash, parseShareHash,
+  calculateResult, getResultPresentation, getShareHash, parseShareHash, getResultDisplayCode, getDateStamp, getFlatAnswerCount, migrateStorageKeys, PROGRESS_STORAGE_KEY, LAST_RESULT_STORAGE_KEY,
   saveLastResult, loadLastResult, isValidCompletedAt,
-  setAnswers(value) { answers = value; }
+  setAnswers(value) { answers = value; }, get QUIZ_VERSION() { return QUIZ_VERSION; }
 })`, context);
 const axes = [...api.AXIS_ORDER];
 const zero = () => Object.fromEntries(axes.map(axis => [axis, 0]));
@@ -148,15 +149,15 @@ test("new and legacy saved results reopen consistently, while corrupted evidence
   result.completedAt = date;
   assert.equal(api.saveLastResult(result), true);
   assert.deepEqual(snapshot(api.loadLastResult()), snapshot(result));
-  const stored = JSON.parse(storage.get("ic-last-result"));
-  storage.set("ic-last-result", JSON.stringify({ ...stored, tieBreaks: { ...stored.tieBreaks, EI: 4 } }));
+  const stored = JSON.parse(storage.get(LAST_RESULT));
+  storage.set(LAST_RESULT, JSON.stringify({ ...stored, tieBreaks: { ...stored.tieBreaks, EI: 4 } }));
   assert.equal(api.loadLastResult(), null);
   const noEvidence = { ...stored };
   delete noEvidence.tieBreaks;
-  storage.set("ic-last-result", JSON.stringify(noEvidence));
+  storage.set(LAST_RESULT, JSON.stringify(noEvidence));
   assert.equal(api.loadLastResult(), null);
-  storage.set("ic-last-result", JSON.stringify({
-    version: 1, quizVersion: "24q-v1", scores: zero(), code: "XXXX", boundaryState: "open", completedAt: date
+  storage.set(LAST_RESULT, JSON.stringify({
+    version: 1, quizVersion: api.QUIZ_VERSION, scores: zero(), code: "XXXX", boundaryState: "open", completedAt: date
   }));
   const legacy = api.loadLastResult();
   assert.equal(legacy.code, "XXXX");
@@ -214,4 +215,55 @@ test("exhaustive six-answer model confirms fewer unresolved ties without directi
   const newIncomplete = 1 - (1 - newTies / 15625) ** 4;
   assert.ok(newIncomplete < oldIncomplete);
   console.log(`Uniform synthetic four-axis incomplete rate: ${(oldIncomplete * 100).toFixed(2)}% -> ${(newIncomplete * 100).toFixed(2)}%`);
+});
+
+test("boundary results keep the letters that are already decided", () => {
+  const oneTie = api.buildResultFromScores({ EI: 0, SN: 2, TF: 2, JP: 2 }, date, { EI: 0, SN: 0, TF: 0, JP: 0 });
+  assert.equal(oneTie.code, "XSTJ");
+  assert.equal(api.getResultDisplayCode(oneTie), "XSTJ");
+  const open = api.buildResultFromScores({ EI: 0, SN: 0, TF: 0, JP: 0 }, date, { EI: 0, SN: 0, TF: 0, JP: 0 });
+  assert.equal(api.getResultDisplayCode(open), "XXXX");
+});
+
+test("the share date is the same one the result page shows, even after midnight", () => {
+  const result = resultFromDirections(allAxes([2, -1, -1, 0, 0, 0]));
+  result.completedAt = "2026-10-20T17:30:00.000Z"; // 01:30 on 10-21 in Beijing
+  assert.equal(api.getDateStamp(result.completedAt), "2026.10.21");
+  const hash = api.getShareHash(result);
+  assert.match(hash, /\/2026-10-21$/);
+  const rebuilt = api.parseShareHash(hash);
+  assert.ok(rebuilt);
+  assert.equal(api.getDateStamp(rebuilt.completedAt), "2026.10.21");
+  assert.equal(rebuilt.code, result.code);
+});
+
+test("old storage keys migrate into the app namespace and are removed", () => {
+  storage.clear();
+  storage.set("ic-progress", JSON.stringify({ version: 2, answers: Array(24).fill(null), currentQuestion: 0, updatedAt: Date.now() }));
+  storage.set("ic-last-result", "{\"version\":2}");
+  api.migrateStorageKeys();
+  assert.ok(storage.get(api.PROGRESS_STORAGE_KEY));
+  assert.ok(storage.get(api.LAST_RESULT_STORAGE_KEY));
+  assert.equal(storage.get("ic-progress"), undefined);
+  assert.equal(storage.get("ic-last-result"), undefined);
+});
+
+test("the app can tell when every answer used the same option", () => {
+  api.setAnswers(Array(24).fill(2));
+  assert.equal(api.getFlatAnswerCount(), 24);
+  api.setAnswers([2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+  assert.equal(api.getFlatAnswerCount(), 12);
+  assert.equal(api.getFlatAnswerCount(), 12);
+  api.setAnswers(Array(24).fill(null));
+  assert.equal(api.getFlatAnswerCount(), 0);
+});
+
+test("results from an older question set are not reused", () => {
+  storage.clear();
+  const result = resultFromDirections(allAxes([2, -1, -1, 0, 0, 0]));
+  result.completedAt = date;
+  assert.equal(api.saveLastResult(result), true);
+  const stored = JSON.parse(storage.get(LAST_RESULT));
+  storage.set(LAST_RESULT, JSON.stringify({ ...stored, quizVersion: "24q-v1" }));
+  assert.equal(api.loadLastResult(), null);
 });
